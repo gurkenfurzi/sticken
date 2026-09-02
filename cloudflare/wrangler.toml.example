@@ -1,0 +1,16 @@
+name = "auftragshelfer-api"
+main = "worker.js"
+compatibility_date = "2026-09-02"
+
+[vars]
+# Deine GitHub-Pages-Adresse. Mehrere Origins mit Komma trennen.
+ALLOWED_ORIGIN = "https://DEIN-NAME.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "auftragshelfer"
+database_id = "DEINE_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "auftragshelfer-files"
