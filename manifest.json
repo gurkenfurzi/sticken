@@ -1,0 +1,9 @@
+{
+  "name": "Auftragshelfer",
+  "short_name": "Auftragshelfer",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8f2e9",
+  "theme_color": "#efe3d3",
+  "icons": []
+}
