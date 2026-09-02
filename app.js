@@ -13,6 +13,13 @@ const fmtDateTime = (s) => {
   return new Intl.DateTimeFormat("de-DE", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }).format(d);
 };
 const money = (n) => new Intl.NumberFormat("de-DE", { style:"currency", currency:"EUR" }).format(Number(n || 0));
+const moneyMaybe = (n) => (n === null || n === undefined || n === "") ? "Nicht eingetragen" : money(n);
+const parseOptionalPrice = (value) => {
+  const raw = String(value ?? '').trim();
+  if(!raw) return null;
+  const num = parseFloat(raw.replace(',', '.'));
+  return Number.isFinite(num) ? num : null;
+};
 const escapeHTML = (s="") => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const attr = (s="") => escapeHTML(s).replace(/"/g, "&quot;");
 
@@ -51,8 +58,8 @@ const defaults = {
     {id:"p4",name:"Jacke mit Stick",price:59,photo:""}
   ],
   offers:[
-    {id:"a1",name:"5 Dubbegläser mit Druck",price:50,valid:"2026-12-31"},
-    {id:"a2",name:"10 Shirts mit Druck",price:120,valid:"2026-12-31"}
+    {id:"a1",name:"5 Dubbegläser mit Druck",price:50,valid:"2026-12-31",photo:""},
+    {id:"a2",name:"10 Shirts mit Druck",price:120,valid:"2026-12-31",photo:""}
   ],
   events:[
     {id:"e1",date:todayISO(),time:"11:00",title:"Kunde holt ab",note:"Klara Meier",type:"pickup"}
@@ -70,7 +77,9 @@ function loadState(){
   try{
     const saved = JSON.parse(localStorage.getItem("auftragshelfer"));
     const s = saved ? {...defaults, ...saved, settings:{...defaults.settings, ...(saved.settings||{})}} : structuredClone(defaults);
-    s.orders = (s.orders || []).map(o => ({paid:false, reminder:false, reminderAt:null, reminded:false, informed:false, ready:false, photos:[], status:"open", ...o}));
+    s.orders = (s.orders || []).map(o => ({paid:false, reminder:false, reminderAt:null, reminded:false, informed:false, ready:false, photos:[], locationPhoto:"", status:"open", ...o}));
+    s.prices = (s.prices || []).map(p => ({photo:"", ...p}));
+    s.offers = (s.offers || []).map(o => ({photo:"", ...o}));
     return s;
   }catch(e){ return structuredClone(defaults); }
 }
@@ -78,10 +87,10 @@ function saveState(){ localStorage.setItem("auftragshelfer", JSON.stringify(stat
 function setTheme(name){
   const root = document.documentElement;
   const themes = {
-    beige:{accent:"#b8895f", accent2:"#dcc0a1", strong:"#9d6f47", bg:"#f8f2e9", surface2:"#f2e7d9", surface3:"#ead8c4"},
-    sand:{accent:"#b39a78", accent2:"#d8c5aa", strong:"#8f7657", bg:"#f6f1e9", surface2:"#ede4d6", surface3:"#e5d6c3"},
-    rose:{accent:"#b98275", accent2:"#dfb7ae", strong:"#9e6659", bg:"#faf1ee", surface2:"#f4e1dc", surface3:"#edd0c7"},
-    sage:{accent:"#86927a", accent2:"#bec9b4", strong:"#6e7d66", bg:"#f3f5ef", surface2:"#e4e9de", surface3:"#d8e0d0"}
+    beige:{accent:"#bb8f67", accent2:"#e8d5bd", strong:"#9b6f48", bg:"#f8f3ec", surface2:"#f3e8db", surface3:"#ead7c0"},
+    sand:{accent:"#c29a6b", accent2:"#ead5b5", strong:"#997450", bg:"#faf4eb", surface2:"#f3e8da", surface3:"#ead9c6"},
+    rose:{accent:"#c48b80", accent2:"#efd1ca", strong:"#9f665d", bg:"#fcf3f1", surface2:"#f6e2de", surface3:"#efd1ca"},
+    sage:{accent:"#97a087", accent2:"#d9e0d1", strong:"#727d66", bg:"#f5f6f1", surface2:"#e7ebdf", surface3:"#dce3d3"}
   };
   const t = themes[name] || themes.beige;
   root.style.setProperty("--accent", t.accent);
@@ -127,7 +136,7 @@ function orderCard(o){
       <div class="desc">${escapeHTML((o.text || '').split('\n')[0] || 'Auftrag')}</div>
       <div class="order-meta"><span>${dueLabel(o.due)}</span>${orderBadge(o)}${o.paid ? `<span class="badge paid">Bezahlt</span>` : ``}</div>
     </div>
-    <div class="order-side"><span class="price">${money(o.price)}</span></div>
+    <div class="order-side"><span class="price">${moneyMaybe(o.price)}</span></div>
   </div>`;
 }
 
@@ -142,8 +151,7 @@ function nav(){
   return `<nav class="nav">${items.map(([p,l,i])=>`
     <button data-nav="${p}" class="nav-btn pressable ${route.page===p?'active':''}">
       ${ICONS[i]}<span>${l}</span>
-    </button>`).join('')}</nav>
-    <button class="fab pressable" data-nav="new" aria-label="Schneller Auftrag">${ICONS.plus}</button>`;
+    </button>`).join('')}</nav>`;
 }
 function topbar(title, back=false, actions=''){
   return `<div class="topbar">
@@ -176,9 +184,10 @@ function modalHTML(){
     return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Preis / Angebot hinzufügen</h2><button class="icon-btn pressable" data-close>×</button></div>
       <form id="priceForm" class="form">
         <div class="field"><label>Name</label><input name="name" required></div>
-        <div class="field"><label>Preis</label><input name="price" inputmode="decimal" required></div>
+        <div class="field"><label>Preis</label><input name="price" inputmode="decimal" placeholder="frei lassen wenn offen"></div>
         <div class="field"><label>Art</label><select name="kind"><option value="prices" ${modal.tab==='prices'?'selected':''}>Preis</option><option value="offers" ${modal.tab==='offers'?'selected':''}>Angebot</option></select></div>
         <div class="field"><label>Gültig bis (nur Angebot)</label><input name="valid" type="date"></div>
+        <label class="photo-picker pressable"><input id="pricePhoto" type="file" accept="image/*"><div class="photo-trigger">${ICONS.camera}<span><b>Bild</b><br><span class="small-note">Optional</span></span></div><div id="pricePreview" class="photos"></div></label>
         <button class="primary-btn pressable">Speichern</button>
       </form></div></div>`;
   }
@@ -201,8 +210,9 @@ function modalHTML(){
       <form id="editOrderForm" class="form">
         <div class="field"><label>Name / Firma</label><input name="name" value="${attr(o.name)}" required></div>
         <div class="field"><label>Telefonnummer</label><input name="phone" value="${attr(o.phone)}"></div>
-        <div class="grid2"><div class="field"><label>Fällig bis</label><input name="due" type="date" value="${o.due}"></div><div class="field"><label>Preis</label><input name="price" value="${o.price}"></div></div>
+        <div class="grid2"><div class="field"><label>Fällig bis</label><input name="due" type="date" value="${o.due}"></div><div class="field"><label>Preis</label><input name="price" value="${o.price ?? ''}" placeholder="frei lassen wenn offen"></div></div>
         <div class="field"><label>Wo liegt es?</label><input name="location" value="${attr(o.location)}"></div>
+        <label class="photo-picker pressable"><input id="editLocationPhoto" type="file" accept="image/*"><div class="photo-trigger">${ICONS.camera}<span><b>Ablagefoto</b><br><span class="small-note">Optional</span></span></div><div id="editLocationPreview" class="photos">${o.locationPhoto ? `<img class="photo" src="${o.locationPhoto}">` : ``}</div></label>
         <div class="field"><label>Auftrag</label><textarea name="text">${escapeHTML(o.text)}</textarea></div>
         <button class="primary-btn pressable">Änderungen speichern</button>
         <button type="button" class="secondary-btn pressable danger-btn" data-action="deleteOrder">Auftrag löschen</button>
@@ -233,7 +243,7 @@ function home(){
     <div class="section-head"><h2>Nächste fällige Aufträge</h2><button class="ghost-btn pressable" data-nav="orders">Alle anzeigen</button></div>
     <div class="list">${upcoming.length ? upcoming.map(orderCard).join('') : `<div class="card empty">Keine offenen Aufträge</div>`}</div>
     <div class="section-head"><h2>Bestellen</h2><button class="ghost-btn pressable" data-nav="supplies">Alle anzeigen</button></div>
-    <div class="card mini-list">${state.supplies.filter(s => !s.ordered).slice(0,3).map(s => `<div class="mini-row"><span class="grow">${escapeHTML(s.name)}</span><small>${escapeHTML(s.amount)}</small></div>`).join('') || `<div class="empty">Nichts offen</div>`}</div>
+    <div class="card mini-list">${state.supplies.filter(s => !s.ordered).map(s => `<div class="mini-row"><span class="grow">${escapeHTML(s.name)}</span><small>${escapeHTML(s.amount)}</small></div>`).join('') || `<div class="empty">Nichts offen</div>`}</div>
   `);
 }
 
@@ -249,9 +259,10 @@ function newOrder(){
         <div class="field"><label>Fertig bis</label><input type="date" name="due" value="${now}" required></div>
       </div>
       <div class="grid2">
-        <div class="field"><label>Preis</label><input name="price" inputmode="decimal" placeholder="0,00"></div>
-        <div class="field"><label>Wo liegt es?</label><input name="location"></div>
+        <div class="field"><label>Preis</label><input name="price" inputmode="decimal" placeholder="frei lassen wenn noch offen"></div>
+        <div class="field"><label>Wo liegt es?</label><input name="location" placeholder="z. B. Regal B · Fach 2"></div>
       </div>
+      <label class="photo-picker pressable"><input id="locationPhotoInput" type="file" accept="image/*"><div class="photo-trigger">${ICONS.camera}<span><b>Ablagefoto</b><br><span class="small-note">Wo es liegt fotografieren</span></span></div><div id="locationPhotoPreview" class="photos"></div></label>
       <label class="photo-picker pressable"><input id="photoInput" type="file" accept="image/*" multiple><div class="photo-trigger">${ICONS.camera}<span><b>Fotos</b><br><span class="small-note">Mehrere Bilder möglich</span></span></div><div id="newPhotos" class="photos"></div></label>
       <div class="field"><label>Auftrag</label><textarea name="text" id="orderText" placeholder="Einfach alles reinschreiben – das Feld wächst automatisch mit." required></textarea></div>
       <button class="primary-btn pressable" type="submit">Auftrag speichern</button>
@@ -260,6 +271,8 @@ function newOrder(){
   const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.max(110, ta.scrollHeight) + 'px'; };
   ta.addEventListener('input', grow); grow();
   let photos = [];
+  let locationPhoto = "";
+  $('#locationPhotoInput').addEventListener('change', async e => { const file = e.target.files[0]; if(file){ locationPhoto = await compressImage(file); $('#locationPhotoPreview').innerHTML = `<img class="photo" src="${locationPhoto}">`; } });
   $('#photoInput').addEventListener('change', async e => {
     for(const f of [...e.target.files]) photos.push(await compressImage(f));
     $('#newPhotos').innerHTML = photos.map(src => `<img class="photo" src="${src}">`).join('');
@@ -273,8 +286,9 @@ function newOrder(){
       phone:String(fd.get('phone')||'').trim(),
       accepted:fd.get('accepted'),
       due:fd.get('due'),
-      price:parseFloat(String(fd.get('price')||'0').replace(',','.')) || 0,
+      price:parseOptionalPrice(fd.get('price')),
       location:String(fd.get('location')||'').trim(),
+      locationPhoto,
       text:String(fd.get('text')||'').trim(),
       status:'open', photos, informed:false, ready:false, reminder:false, reminderAt:null, reminded:false, paid:false
     };
@@ -314,8 +328,8 @@ function detail(id){
     </div>
     <div class="info-grid">
       <div class="info-box"><small>Fällig bis</small><strong>${fmtDate(o.due)}</strong></div>
-      <div class="info-box"><small>Preis</small><strong>${money(o.price)}</strong></div>
-      <div class="info-box location-box"><small>Wo liegt es?</small><strong>${escapeHTML(o.location || 'Nicht eingetragen')}</strong></div>
+      <div class="info-box"><small>Preis</small><strong>${moneyMaybe(o.price)}</strong></div>
+      <div class="info-box location-box"><small>Wo liegt es?</small><strong>${escapeHTML(o.location || 'Nicht eingetragen')}</strong>${o.locationPhoto ? `<img class="location-photo" src="${o.locationPhoto}" alt="Ablagefoto">` : `<div class="small-note">Optional kann auch ein Bild vom Ablageort gespeichert werden.</div>`}</div>
     </div>
     <div class="section-head photos-head"><h2>Fotos</h2></div>
     <div class="photos">${(o.photos || []).map(src => `<img class="photo" src="${src}">`).join('')}<button class="photo-add pressable" data-action="addPhotos">${ICONS.plus}</button></div>
@@ -437,10 +451,10 @@ function prices(){
     const q = $('#priceSearch').value.toLowerCase().trim();
     if(tab === 'prices'){
       const filtered = state.prices.filter(p => p.name.toLowerCase().includes(q));
-      $('#priceContent').innerHTML = `<div class="list">${filtered.length ? filtered.map(p => `<div class="card price-card">${p.photo ? `<img class="thumb" src="${p.photo}">` : `<div class="thumb placeholder">${ICONS.tag}</div>`}<div><strong>${escapeHTML(p.name)}</strong><br><small>Standardpreis</small></div><div class="price-value">${money(p.price)}</div></div>`).join('') : `<div class="card empty">Keine Preise gefunden.</div>`}</div>`;
+      $('#priceContent').innerHTML = `<div class="list">${filtered.length ? filtered.map(p => `<div class="card price-card">${p.photo ? `<img class="thumb" src="${p.photo}">` : `<div class="thumb placeholder">${ICONS.tag}</div>`}<div><strong>${escapeHTML(p.name)}</strong><br><small>Standardpreis</small></div><div class="price-value">${moneyMaybe(p.price)}</div></div>`).join('') : `<div class="card empty">Keine Preise gefunden.</div>`}</div>`;
     }else{
       const filtered = state.offers.filter(a => a.name.toLowerCase().includes(q));
-      $('#priceContent').innerHTML = `<div class="list">${filtered.length ? filtered.map(a => `<div class="card price-card"><div class="thumb placeholder">${ICONS.tag}</div><div><strong>${escapeHTML(a.name)}</strong><br><small>Gültig bis ${fmtDate(a.valid)}</small></div><div class="price-value">${money(a.price)}</div></div>`).join('') : `<div class="card empty">Keine Angebote gefunden.</div>`}</div>`;
+      $('#priceContent').innerHTML = `<div class="list">${filtered.length ? filtered.map(a => `<div class="card price-card">${a.photo ? `<img class="thumb" src="${a.photo}">` : `<div class="thumb placeholder">${ICONS.tag}</div>`}<div><strong>${escapeHTML(a.name)}</strong><br><small>Gültig bis ${fmtDate(a.valid)}</small></div><div class="price-value">${moneyMaybe(a.price)}</div></div>`).join('') : `<div class="card empty">Keine Angebote gefunden.</div>`}</div>`;
     }
   };
   $('#priceSearch').addEventListener('input', render);
@@ -489,7 +503,9 @@ function bindModal(){
     $('#supplyForm').addEventListener('submit', e => { e.preventDefault(); const f = new FormData(e.currentTarget); state.supplies.unshift({id:uid(), name:String(f.get('name')||'').trim(), amount:String(f.get('amount')||'').trim(), photo, ordered:false}); saveState(); modal = null; toast('Zu Bestellen hinzugefügt'); supplies(); });
   }
   if(modal.type === 'price'){
-    $('#priceForm').addEventListener('submit', e => { e.preventDefault(); const f = new FormData(e.currentTarget); const item = {id:uid(), name:String(f.get('name')||'').trim(), price:parseFloat(String(f.get('price')||'0').replace(',','.')) || 0}; if(f.get('kind') === 'offers') state.offers.unshift({...item, valid:f.get('valid') || '2026-12-31'}); else state.prices.unshift({...item, photo:''}); saveState(); modal = null; toast('Gespeichert'); prices(); });
+    let photo = '';
+    $('#pricePhoto').addEventListener('change', async e => { const file = e.target.files[0]; if(file){ photo = await compressImage(file); $('#pricePreview').innerHTML = `<img class="photo" src="${photo}">`; } });
+    $('#priceForm').addEventListener('submit', e => { e.preventDefault(); const f = new FormData(e.currentTarget); const item = {id:uid(), name:String(f.get('name')||'').trim(), price:parseOptionalPrice(f.get('price')), photo}; if(f.get('kind') === 'offers') state.offers.unshift({...item, valid:f.get('valid') || '2026-12-31'}); else state.prices.unshift(item); saveState(); modal = null; toast('Gespeichert'); prices(); });
   }
   if(modal.type === 'reminder'){
     const o = state.orders.find(x => x.id === modal.id);
@@ -498,7 +514,9 @@ function bindModal(){
   }
   if(modal.type === 'editOrder'){
     const o = state.orders.find(x => x.id === modal.id);
-    $('#editOrderForm').addEventListener('submit', e => { e.preventDefault(); const f = new FormData(e.currentTarget); o.name = String(f.get('name')||'').trim(); o.phone = String(f.get('phone')||'').trim(); o.due = f.get('due'); o.price = parseFloat(String(f.get('price')||'0').replace(',','.')) || 0; o.location = String(f.get('location')||'').trim(); o.text = String(f.get('text')||'').trim(); saveState(); modal = null; toast('Auftrag aktualisiert'); detail(o.id); });
+    let locationPhoto = o.locationPhoto || '';
+    $('#editLocationPhoto').addEventListener('change', async e => { const file = e.target.files[0]; if(file){ locationPhoto = await compressImage(file); $('#editLocationPreview').innerHTML = `<img class="photo" src="${locationPhoto}">`; } });
+    $('#editOrderForm').addEventListener('submit', e => { e.preventDefault(); const f = new FormData(e.currentTarget); o.name = String(f.get('name')||'').trim(); o.phone = String(f.get('phone')||'').trim(); o.due = f.get('due'); o.price = parseOptionalPrice(f.get('price')); o.location = String(f.get('location')||'').trim(); o.locationPhoto = locationPhoto; o.text = String(f.get('text')||'').trim(); saveState(); modal = null; toast('Auftrag aktualisiert'); detail(o.id); });
     $('[data-action="deleteOrder"]').addEventListener('click', () => { if(confirm('Auftrag wirklich löschen?')){ state.orders = state.orders.filter(x => x.id !== o.id); saveState(); modal = null; toast('Auftrag gelöscht'); route = {page:'orders'}; orders(); } });
   }
 }
