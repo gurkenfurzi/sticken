@@ -1,5 +1,5 @@
-const CACHE = "auftragshelfer-v5";
-const ASSETS = ["./","./index.html","./styles.css","./app.js","./manifest.json"];
+const CACHE = "auftragshelfer-v7";
+const ASSETS = ["./","./index.html","./styles.css","./app.js","./manifest.json","./cloud-config.js"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
   self.skipWaiting();

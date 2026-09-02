@@ -71,3 +71,23 @@ img{display:block;max-width:100%}
 .location-photo{width:100%;max-height:126px;object-fit:cover;border-radius:14px;border:1px solid var(--line);margin-top:10px}
 .pressable{will-change:transform}
 .pressable.pressed,.pressable:active{transform:scale(.965)}
+.toggle-line{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);padding:4px 2px 8px}.toggle-line input{width:18px;height:18px;accent-color:var(--accent)}
+.cloud-card{padding:14px}.cloud-head{display:flex;align-items:center;gap:11px}.cloud-head>.icon{width:24px;height:24px;color:var(--accent-strong)}.cloud-head>div{display:flex;flex-direction:column;gap:2px}.cloud-head .grow{flex:1}.cloud-head strong{font-size:14px}.cloud-head small{font-size:11px;color:var(--muted)}.cloud-form{margin-top:14px}.cloud-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.cloud-actions .primary-btn,.cloud-actions .secondary-btn{min-width:0}.sync-pill{font-size:10px;padding:5px 8px;border-radius:999px;background:var(--surface-2);color:var(--accent-strong);white-space:nowrap}
+
+.top-text-btn{border:0;background:transparent;color:var(--accent-strong);font-weight:750;padding:8px 2px;font-size:13px}
+.autocomplete-wrap{position:relative;z-index:12}
+.suggestions{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:15px;box-shadow:0 14px 34px rgba(63,43,27,.14);padding:5px;overflow:hidden;animation:popIn .14s ease}
+.suggestions[hidden]{display:none}
+.suggestion{width:100%;border:0;background:transparent;border-radius:11px;padding:10px 11px;text-align:left;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.suggestion + .suggestion{border-top:1px solid var(--line)}
+.suggestion strong{font-size:13px;font-weight:720;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.suggestion span{font-size:11px;color:var(--muted)}
+.suggestion small{grid-column:1/-1;font-size:10px;color:var(--muted)}
+.customer-card{width:100%;display:grid;grid-template-columns:46px 1fr auto;gap:12px;align-items:center;padding:12px;text-align:left;color:inherit}
+.customer-avatar{width:46px;height:46px;border-radius:14px;background:var(--surface-2);display:grid;place-items:center;color:var(--accent-strong)}
+.customer-avatar .icon{width:20px;height:20px}
+.customer-main{display:flex;flex-direction:column;gap:3px;min-width:0}
+.customer-main strong{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.customer-main span{font-size:12px;color:#514940}
+.customer-main small{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chevron{font-size:24px;color:#aa9a8a;font-weight:300}
