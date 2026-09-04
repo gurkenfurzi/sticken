@@ -13,7 +13,7 @@ const fmtDateTime = (s) => {
   return new Intl.DateTimeFormat("de-DE", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }).format(d);
 };
 const money = (n) => new Intl.NumberFormat("de-DE", { style:"currency", currency:"EUR" }).format(Number(n || 0));
-const moneyMaybe = (n) => (n === null || n === undefined || n === "") ? "Nicht eingetragen" : money(n);
+const moneyMaybe = (n) => (n === null || n === undefined || n === "") ? "–" : money(n);
 const parseOptionalPrice = (value) => {
   const raw = String(value ?? '').trim();
   if(!raw) return null;
@@ -40,6 +40,7 @@ const ICONS = {
   settings:`<svg class="icon" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.5"/></svg>`,
   whatsapp:`<svg class="icon" viewBox="0 0 24 24"><path d="M20 11.5A8.5 8.5 0 0 1 7.6 19l-3.6 1 1-3.5A8.5 8.5 0 1 1 20 11.5Z"/><path d="M9.2 8.7c.2-.4.4-.4.7-.4h.5c.2 0 .4 0 .5.3l.8 1.8c.1.2.1.4 0 .5l-.4.6c-.1.1-.1.3 0 .4.4.8 1 1.4 1.8 1.8.1.1.3.1.4 0l.6-.4c.2-.1.4-.1.5 0l1.8.8c.3.1.3.3.3.5v.5c0 .3 0 .5-.4.7-.4.2-1 .3-1.7.1-2-.5-4.7-3.1-5.2-5.2-.2-.7-.1-1.3.1-1.7Z"/></svg>`,
   cloud:`<svg class="icon" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .8-7.9A6 6 0 0 0 6.4 8.4 4.8 4.8 0 0 0 7 18Z"/><path d="M12 10v6M9.5 13.5 12 16l2.5-2.5"/></svg>`,
+  backup:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 5h13l3 3v11H4Z"/><path d="M8 5v5h8V5M8 19v-5h8v5"/></svg>`,
   user:`<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20c.8-4 3.3-6 7.5-6s6.7 2 7.5 6"/></svg>`
 };
 
@@ -124,43 +125,158 @@ let cloudInitializing = false;
 let cloudToken = localStorage.getItem('auftragshelfer_cloud_token') || '';
 let cloudLastUpdated = 0;
 let cloudPollTimer = null;
+let backupTimer = null;
+const googlePhotoCache = new Map();
+
+// Native Android bridge. On iPhone/browser this is simply unavailable and the PWA fallback is used.
+function isNativeAndroid(){ return !!window.AndroidNative; }
+function openExternalUrl(url){
+  if(isNativeAndroid()){ try{ window.AndroidNative.openExternal(String(url)); return; }catch(err){ console.error(err); } }
+  window.open(String(url), '_blank');
+}
+function nativeImportAllContacts(){
+  if(!isNativeAndroid()) return false;
+  try{ window.AndroidNative.importAllContacts(); return true; }catch(err){ console.error(err); toast('Kontakte konnten nicht geöffnet werden'); return false; }
+}
+window.onNativeContactsImported = function(payload){
+  try{
+    const contacts = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    if(!Array.isArray(contacts) || !contacts.length){ toast('Keine Kontakte gefunden'); return; }
+    const result = mergeImportedCustomers(contacts.map(c => ({
+      id:uid(), name:String(c.name||c.organization||'').trim(), phone:String(c.phone||'').trim(),
+      email:String(c.email||'').trim(), address:String(c.address||'').trim(), note:''
+    })).filter(c => c.name || c.phone || c.email));
+    saveState();
+    if(route.page === 'customers') customers();
+    toast(`${result.added} neu · ${result.updated} ergänzt${result.skipped ? ` · ${result.skipped} doppelt` : ''}`);
+  }catch(err){ console.error(err); toast('Kontakte konnten nicht importiert werden'); }
+};
+window.onNativeContactsError = function(message){ toast(message || 'Kontakte konnten nicht importiert werden'); };
+function nativeReminderId(orderId=''){
+  let hash = 0;
+  for(const ch of String(orderId)){ hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0; }
+  return Math.abs(hash || 1);
+}
+function scheduleNativeReminder(order){
+  if(!isNativeAndroid() || !order?.reminderAt) return false;
+  try{
+    const when = new Date(order.reminderAt).getTime();
+    if(!Number.isFinite(when)) return false;
+    window.AndroidNative.scheduleReminder(
+      nativeReminderId(order.id),
+      `Erinnerung: ${order.name || 'Auftrag'}`,
+      `${String(order.text || 'Auftrag').split('\n')[0]} · fällig bis ${fmtDate(order.due)}`,
+      when
+    );
+    return true;
+  }catch(err){ console.error(err); return false; }
+}
+function cancelNativeReminder(order){
+  if(!isNativeAndroid()) return false;
+  try{ window.AndroidNative.cancelReminder(nativeReminderId(order.id)); return true; }catch(err){ console.error(err); return false; }
+}
+function syncNativeReminders(){
+  if(!isNativeAndroid()) return;
+  const now = Date.now();
+  for(const order of state.orders || []){
+    const when = order.reminderAt ? new Date(order.reminderAt).getTime() : NaN;
+    if(order.reminder && !order.reminded && Number.isFinite(when) && when > now){
+      scheduleNativeReminder(order);
+    }else if(!order.reminder){
+      cancelNativeReminder(order);
+    }
+  }
+}
 let selectedCustomerForNewOrder = null;
 setTheme(state.settings.theme);
 
 function cloudConfigValid(){
-  const cfg = window.CLOUD_CONFIG || {};
-  return Boolean(cfg.apiBase && !String(cfg.apiBase).includes('DEINE_') && !String(cfg.apiBase).includes('YOUR_'));
+  const cfg = window.GOOGLE_SYNC_CONFIG || {};
+  return Boolean(cfg.scriptUrl && !String(cfg.scriptUrl).includes('DEINE_') && !String(cfg.scriptUrl).includes('YOUR_'));
 }
-function cloudBase(){ return String(window.CLOUD_CONFIG?.apiBase || '').replace(/\/$/, ''); }
+function cloudBase(){ return String(window.GOOGLE_SYNC_CONFIG?.scriptUrl || '').replace(/\/$/, ''); }
+function googleActionForPath(path, method='GET'){
+  const m = String(method || 'GET').toUpperCase();
+  const map = {
+    '/api/me':'me',
+    '/api/state':'state',
+    '/api/state/meta':'state_meta',
+    '/api/auth/register':'register',
+    '/api/auth/login':'login',
+    '/api/auth/recover':'recover',
+    '/api/auth/logout':'logout',
+    '/api/upload':'upload',
+    '/api/file':'file'
+  };
+  if(path === '/api/state' && m !== 'GET') return 'state_put';
+  return map[path] || '';
+}
 async function cloudRequest(path, options={}){
-  if(!cloudConfigured) throw new Error('Cloud ist noch nicht eingerichtet.');
-  const headers = new Headers(options.headers || {});
-  if(cloudToken) headers.set('Authorization', `Bearer ${cloudToken}`);
-  if(options.body && !(options.body instanceof Blob) && !(options.body instanceof ArrayBuffer) && !headers.has('Content-Type')) headers.set('Content-Type','application/json');
-  const response = await fetch(`${cloudBase()}${path}`, {...options, headers});
+  if(!cloudConfigured) throw new Error('Google-Sync ist noch nicht eingerichtet.');
+  const method = String(options.method || 'GET').toUpperCase();
+  const action = googleActionForPath(path, method);
+  if(!action) throw new Error('Unbekannte Sync-Aktion.');
+  let response;
+  if(method === 'GET'){
+    const url = new URL(cloudBase());
+    url.searchParams.set('action', action);
+    if(cloudToken) url.searchParams.set('token', cloudToken);
+    for(const [k,v] of Object.entries(options.query || {})) if(v !== undefined && v !== null) url.searchParams.set(k, String(v));
+    response = await fetch(url.toString(), {method:'GET', redirect:'follow', cache:'no-store'});
+  }else{
+    let payload = {};
+    if(options.body){
+      if(typeof options.body === 'string'){
+        try{ payload = JSON.parse(options.body); }catch{ payload = {value:options.body}; }
+      }else payload = options.body;
+    }
+    payload.action = action;
+    if(cloudToken) payload.token = cloudToken;
+    response = await fetch(cloudBase(), {
+      method:'POST',
+      redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(payload)
+    });
+  }
+  const raw = await response.text();
   let data = null;
-  const type = response.headers.get('content-type') || '';
-  if(type.includes('application/json')) data = await response.json().catch(()=>null);
-  if(!response.ok){
-    const err = new Error(data?.error || `Cloud-Fehler (${response.status})`);
-    err.status = response.status;
+  try{ data = JSON.parse(raw); }catch{ throw new Error('Google-Sync hat keine gültige Antwort geliefert.'); }
+  if(data?.ok === false){
+    const err = new Error(data.error || 'Google-Sync fehlgeschlagen');
+    err.status = Number(data.status || 400);
     throw err;
   }
   return data;
 }
+const GOOGLE_PHOTO_PLACEHOLDER = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><rect width="100%" height="100%" rx="18" fill="#f1e7da"/><path d="M52 118l26-29 19 21 14-16 25 24" fill="none" stroke="#b59678" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="72" cy="64" r="10" fill="#b59678"/></svg>`);
 function photoSrc(ref){
   if(!ref) return '';
-  if(String(ref).startsWith('r2:') && cloudConfigured && cloudToken){
-    const key = String(ref).slice(3);
-    return `${cloudBase()}/api/file/${encodeURIComponent(key)}?token=${encodeURIComponent(cloudToken)}`;
-  }
+  if(String(ref).startsWith('gdrive:')) return googlePhotoCache.get(String(ref)) || GOOGLE_PHOTO_PLACEHOLDER;
   return ref;
 }
 async function uploadCloudPhoto(ref){
   if(!ref || !String(ref).startsWith('data:image/')) return ref;
-  const blob = await fetch(ref).then(r=>r.blob());
-  const result = await cloudRequest('/api/upload', {method:'POST', headers:{'Content-Type':blob.type || 'image/jpeg'}, body:blob});
-  return result.ref;
+  const result = await cloudRequest('/api/upload', {method:'POST', body:JSON.stringify({dataUrl:String(ref)})});
+  if(result?.ref) googlePhotoCache.set(result.ref, String(ref));
+  return result.ref || ref;
+}
+async function hydrateGooglePhotos(){
+  if(!cloudConfigured || !cloudToken) return;
+  const refs = new Set();
+  const add = r => { if(r && String(r).startsWith('gdrive:')) refs.add(String(r)); };
+  for(const o of state.orders || []){ add(o.locationPhoto); for(const p of o.photos || []) add(p); }
+  for(const s of state.supplies || []) add(s.photo);
+  for(const p of state.prices || []) add(p.photo);
+  for(const a of state.offers || []) add(a.photo);
+  for(const ref of refs){
+    if(googlePhotoCache.has(ref)) continue;
+    try{
+      const id = ref.slice('gdrive:'.length);
+      const result = await cloudRequest('/api/file', {query:{id}});
+      if(result?.dataUrl) googlePhotoCache.set(ref, result.dataUrl);
+    }catch(err){ console.warn('Bild konnte nicht geladen werden', err); }
+  }
 }
 async function prepareStateForCloud(){
   for(const o of state.orders){
@@ -198,7 +314,7 @@ async function initCloud(){
 function scheduleCloudSave(){
   clearTimeout(cloudSaveTimer);
   cloudSyncState = 'saving';
-  cloudSaveTimer = setTimeout(pushCloudState, 700);
+  cloudSaveTimer = setTimeout(pushCloudState, 900);
 }
 async function pushCloudState(){
   if(!currentUser || !cloudToken || !cloudConfigured) return;
@@ -224,7 +340,9 @@ async function pullCloudState(){
       state = normalizeStateShape(result.data);
       saveLocalOnly();
       setTheme(state.settings.theme);
+      await hydrateGooglePhotos();
       cloudSyncState = 'synced';
+      syncNativeReminders();
       renderCurrent();
     }else{
       await pushCloudState();
@@ -239,14 +357,14 @@ function updateCloudStatusOnly(){
   if(el) el.textContent = cloudStatusText();
 }
 function cloudStatusText(){
-  if(!cloudConfigured) return 'Cloudflare noch nicht eingerichtet';
+  if(!cloudConfigured) return 'Google-Sync noch nicht eingerichtet';
   if(!currentUser) return 'Nicht angemeldet';
   if(cloudSyncState === 'saving' || cloudSyncState === 'syncing') return 'Synchronisiert…';
   if(cloudSyncState === 'error') return 'Sync-Fehler';
   return 'Synchronisiert';
 }
-async function cloudSignUp(email, password){
-  const result = await cloudRequest('/api/auth/register', {method:'POST', body:JSON.stringify({email,password})});
+async function cloudSignUp(username, password){
+  const result = await cloudRequest('/api/auth/register', {method:'POST', body:JSON.stringify({username,password})});
   cloudToken = result.token;
   localStorage.setItem('auftragshelfer_cloud_token', cloudToken);
   currentUser = result.user;
@@ -254,14 +372,17 @@ async function cloudSignUp(email, password){
   startCloudPolling();
   return result;
 }
-async function cloudSignIn(email, password){
-  const result = await cloudRequest('/api/auth/login', {method:'POST', body:JSON.stringify({email,password})});
+async function cloudSignIn(username, password){
+  const result = await cloudRequest('/api/auth/login', {method:'POST', body:JSON.stringify({username,password})});
   cloudToken = result.token;
   localStorage.setItem('auftragshelfer_cloud_token', cloudToken);
   currentUser = result.user;
   await pullCloudState();
   startCloudPolling();
   return result;
+}
+async function cloudRecover(username, recoveryCode, newPassword){
+  return await cloudRequest('/api/auth/recover', {method:'POST', body:JSON.stringify({username,recoveryCode,newPassword})});
 }
 async function cloudSignOut(){
   try{ if(cloudToken && cloudConfigured) await cloudRequest('/api/auth/logout', {method:'POST'}); }catch(e){}
@@ -270,6 +391,7 @@ async function cloudSignOut(){
   currentUser = null;
   cloudSyncState = 'local';
   cloudLastUpdated = 0;
+  googlePhotoCache.clear();
   if(cloudPollTimer) clearInterval(cloudPollTimer);
 }
 async function checkCloudUpdates(){
@@ -277,7 +399,7 @@ async function checkCloudUpdates(){
   try{
     const meta = await cloudRequest('/api/state/meta');
     if(Number(meta?.updatedAt || 0) > cloudLastUpdated) await pullCloudState();
-  }catch(err){ if(err.status !== 401) console.warn('Cloud check failed', err); }
+  }catch(err){ if(err.status !== 401) console.warn('Google-Sync check failed', err); }
 }
 function startCloudPolling(){
   if(cloudPollTimer) clearInterval(cloudPollTimer);
@@ -344,6 +466,26 @@ function topbar(title, back=false, actions=''){
 }
 function modalHTML(){
   if(!modal) return '';
+  if(modal.type === 'recoveryCode'){
+    return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Wiederherstellungscode</h2><button class="icon-btn pressable" data-close>×</button></div>
+      <div class="card recovery-card">
+        <p><b>Diesen Code jetzt sicher speichern.</b> Er wird nur einmal angezeigt und ersetzt die „Passwort vergessen“-E-Mail.</p>
+        <div class="recovery-code" id="recoveryCodeText">${escapeHTML(modal.code || '')}</div>
+        <button class="primary-btn pressable" data-action="copyRecoveryCode">Code kopieren</button>
+        <p class="small-note">Mit Benutzername + diesem Code kann später ein neues Passwort gesetzt werden. Wer den Code hat, kann das Konto zurücksetzen.</p>
+      </div>
+    </div></div>`;
+  }
+  if(modal.type === 'cloudRecover'){
+    return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Passwort zurücksetzen</h2><button class="icon-btn pressable" data-close>×</button></div>
+      <form id="cloudRecoverForm" class="form">
+        <div class="field"><label>Benutzername</label><input name="username" autocomplete="username" minlength="3" maxlength="32" required></div>
+        <div class="field"><label>Wiederherstellungscode</label><input name="recoveryCode" autocomplete="off" required placeholder="AH-…"></div>
+        <div class="field"><label>Neues Passwort</label><input name="newPassword" type="password" autocomplete="new-password" minlength="8" required></div>
+        <button class="primary-btn pressable" type="submit">Neues Passwort speichern</button>
+      </form>
+    </div></div>`;
+  }
   if(modal.type === 'event'){
     return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Termin eintragen</h2><button class="icon-btn pressable" data-close>×</button></div>
       <form id="eventForm" class="form">
@@ -386,6 +528,19 @@ function modalHTML(){
         <button class="primary-btn pressable">Änderungen speichern</button>
         <button type="button" class="secondary-btn pressable danger-btn" data-action="deleteSupply">Eintrag löschen</button>
       </form></div></div>`;
+  }
+  if(modal.type === 'contactImport'){
+    const contacts = Array.isArray(modal.contacts) ? modal.contacts : [];
+    return `<div class="modal-backdrop"><div class="modal contact-select-modal"><div class="modal-head"><h2>Kontakte auswählen</h2><button class="icon-btn pressable" data-close>×</button></div>
+      <div class="contact-select-toolbar">
+        <span><b>${contacts.length}</b> Kontakte gefunden</span>
+        <div><button class="ghost-btn pressable" type="button" data-action="selectAllContacts">Alle</button><button class="ghost-btn pressable" type="button" data-action="selectNoContacts">Keine</button></div>
+      </div>
+      <div class="contact-select-list">
+        ${contacts.map((c,i)=>`<label class="contact-select-row pressable"><input type="checkbox" data-contact-index="${i}" checked><span class="customer-avatar">${ICONS.user}</span><span class="contact-select-main"><b>${escapeHTML(c.name || c.phone || c.email || 'Kontakt')}</b>${c.phone ? `<small>${escapeHTML(c.phone)}</small>` : ``}${c.email ? `<small>${escapeHTML(c.email)}</small>` : ``}</span></label>`).join('')}
+      </div>
+      <button class="primary-btn pressable" type="button" data-action="importSelectedContacts">Ausgewählte importieren</button>
+    </div></div>`;
   }
   if(modal.type === 'customer'){
     return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Kunde speichern</h2><button class="icon-btn pressable" data-close>×</button></div>
@@ -461,20 +616,32 @@ function layout(content){
 
 function home(){
   const t = todayISO();
-  const today = state.orders.filter(o => o.due === t && o.status !== 'done').length;
-  const progress = state.orders.filter(o => o.status === 'progress').length;
+  const openCount = state.orders.filter(o => o.status !== 'done' && !o.ready).length;
+  const progress = state.orders.filter(o => o.status === 'progress' && !o.ready).length;
   const done = state.orders.filter(o => o.status === 'done' || o.ready).length;
-  const upcoming = [...state.orders].filter(o => o.status !== 'done').sort((a,b) => a.due.localeCompare(b.due)).slice(0,3);
+  const overdue = state.orders.filter(o => o.status !== 'done' && !o.ready && o.due && o.due < t).length;
+  const dueToday = state.orders.filter(o => o.status !== 'done' && !o.ready && o.due === t).length;
+  const dueTotal = overdue + dueToday;
+  const openOrders = [...state.orders]
+    .filter(o => o.status !== 'done' && !o.ready)
+    .sort((a,b) => String(a.due || '9999').localeCompare(String(b.due || '9999')))
+    .slice(0,3);
+  const warningText = overdue && dueToday
+    ? `${overdue} überfällig · ${dueToday} heute fällig`
+    : overdue
+      ? `${overdue} ${overdue === 1 ? 'Auftrag ist' : 'Aufträge sind'} überfällig`
+      : `${dueToday} ${dueToday === 1 ? 'Auftrag ist' : 'Aufträge sind'} heute fällig`;
   layout(`
     ${topbar('Übersicht', false, `<button class="icon-btn pressable" data-nav="more">${ICONS.settings}</button>`)}
     <button class="quick-cta pressable" data-nav="new">${ICONS.plus}<span>Schneller Auftrag</span></button>
+    ${dueTotal ? `<button class="due-warning pressable" data-nav="orders"><span class="due-warning-icon">!</span><span><b>Achtung</b><small>${warningText}</small></span><span class="chevron">›</span></button>` : ``}
     <div class="metrics">
-      <div class="metric today"><div class="label">Heute fällig</div><div class="num">${today}</div></div>
+      <div class="metric open"><div class="label">Offen</div><div class="num">${openCount}</div></div>
       <div class="metric progress"><div class="label">In Arbeit</div><div class="num">${progress}</div></div>
       <div class="metric done"><div class="label">Fertig</div><div class="num">${done}</div></div>
     </div>
-    <div class="section-head"><h2>Nächste fällige Aufträge</h2><button class="ghost-btn pressable" data-nav="orders">Alle anzeigen</button></div>
-    <div class="list">${upcoming.length ? upcoming.map(orderCard).join('') : `<div class="card empty">Keine offenen Aufträge</div>`}</div>
+    <div class="section-head"><h2>Offene Aufträge</h2><button class="ghost-btn pressable" data-nav="orders">Alle anzeigen</button></div>
+    <div class="list">${openOrders.length ? openOrders.map(orderCard).join('') : `<div class="card empty">Keine offenen Aufträge</div>`}</div>
     <div class="section-head"><h2>Bestellen</h2><button class="ghost-btn pressable" data-nav="supplies">Alle anzeigen</button></div>
     <div class="card mini-list">${state.supplies.filter(s => !s.ordered).map(s => `<div class="mini-row"><span class="grow">${escapeHTML(s.name)}</span><small>${escapeHTML(s.amount)}</small></div>`).join('') || `<div class="empty">Nichts offen</div>`}</div>
   `);
@@ -634,7 +801,7 @@ function detail(id){
     if(!number){ toast('Keine Telefonnummer eingetragen'); return; }
     const clean = number.replace(/^\+/, '');
     const msg = encodeURIComponent(`Hallo ${o.name}, wegen deinem Auftrag:`);
-    window.open(`https://wa.me/${clean}?text=${msg}`, '_blank');
+    openExternalUrl(`https://wa.me/${clean}?text=${msg}`);
   });
   $('[data-action="copyOrder"]').addEventListener('click', () => { const c = {...o, id:uid(), name:o.name + ' (Kopie)', accepted:todayISO(), status:'open', informed:false, ready:false, paid:false}; state.orders.unshift(c); saveState(); toast('Auftrag kopiert'); route = {page:'detail', id:c.id}; detail(c.id); });
   $('[data-action="icsOrder"]').addEventListener('click', () => downloadICS({date:o.due, time:'09:00', title:`Auftrag: ${o.name}`, note:o.text}));
@@ -747,9 +914,91 @@ function prices(){
   render();
 }
 
+
+function decodeVCardValue(value=''){
+  let v = String(value || '').replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+  if(/=[0-9A-F]{2}/i.test(v)){
+    try{
+      const bytes = [];
+      for(let i=0; i<v.length; i++){
+        if(v[i] === '=' && /^[0-9A-F]{2}$/i.test(v.slice(i+1,i+3))){ bytes.push(parseInt(v.slice(i+1,i+3),16)); i+=2; }
+        else bytes.push(v.charCodeAt(i));
+      }
+      v = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+    }catch(e){}
+  }
+  return v.trim();
+}
+function parseVCardContacts(raw=''){
+  const unfolded = String(raw).replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n[ \t]/g,'');
+  const cards = unfolded.match(/BEGIN:VCARD[\s\S]*?END:VCARD/gi) || [];
+  return cards.map(card => {
+    const lines = card.split('\n');
+    const values = {};
+    const many = {TEL:[], EMAIL:[], ADR:[]};
+    for(const line of lines){
+      const idx = line.indexOf(':');
+      if(idx < 0) continue;
+      const left = line.slice(0, idx);
+      const key = left.split(';')[0].toUpperCase();
+      const value = decodeVCardValue(line.slice(idx+1));
+      if(key in many) many[key].push(value);
+      else if(!values[key]) values[key] = value;
+    }
+    let name = values.FN || '';
+    if(!name && values.N){
+      const n = values.N.split(';').map(decodeVCardValue);
+      name = [n[1], n[2], n[0]].filter(Boolean).join(' ').trim();
+    }
+    if(!name && values.ORG) name = values.ORG.split(';').filter(Boolean).join(' ');
+    const phone = many.TEL.find(Boolean) || '';
+    const email = many.EMAIL.find(Boolean) || '';
+    const adr = many.ADR.find(Boolean) || '';
+    const address = adr ? adr.split(';').map(decodeVCardValue).filter(Boolean).join(', ') : '';
+    const note = values.NOTE || '';
+    return {id:uid(), name, phone, email, address, note};
+  }).filter(c => c.name || c.phone || c.email || c.address);
+}
+function normalizePhoneForMatch(v=''){ return String(v).replace(/\D/g,'').replace(/^00/,''); }
+function mergeImportedCustomers(imported){
+  let added=0, updated=0, skipped=0;
+  for(const incoming of imported){
+    const p = normalizePhoneForMatch(incoming.phone);
+    const e = String(incoming.email || '').trim().toLowerCase();
+    const n = String(incoming.name || '').trim().toLowerCase();
+    const a = String(incoming.address || '').trim().toLowerCase();
+    let existing = state.customers.find(c => {
+      const cp = normalizePhoneForMatch(c.phone);
+      const ce = String(c.email || '').trim().toLowerCase();
+      if(p && cp && p === cp) return true;
+      if(e && ce && e === ce) return true;
+      return n && a && String(c.name || '').trim().toLowerCase() === n && String(c.address || '').trim().toLowerCase() === a;
+    });
+    if(existing){
+      let changed = false;
+      for(const k of ['name','phone','email','address','note']){
+        if(!existing[k] && incoming[k]){ existing[k] = incoming[k]; changed = true; }
+      }
+      changed ? updated++ : skipped++;
+    }else{
+      state.customers.unshift({...incoming, id:incoming.id || uid()});
+      added++;
+    }
+  }
+  return {added, updated, skipped};
+}
+
 function customers(){
   layout(`
     ${topbar('Kunden', true, `<button class="top-text-btn pressable" data-action="addCustomer">Neu</button>`)}
+    <div class="customer-import-card card">
+      <div class="customer-import-copy">
+        <strong>Kontakte importieren</strong>
+        <small>Funktioniert auf iPhone und Android: Kontaktdatei (.vcf) auswählen. Danach kannst du alle Kontakte auf einmal übernehmen oder einzelne abwählen.</small>
+      </div>
+      <button class="secondary-btn pressable import-all-btn" data-action="importContacts">Kontaktdatei auswählen</button>
+      <input id="contactsVcfInput" type="file" accept=".vcf,text/vcard,text/x-vcard" multiple hidden>
+    </div>
     <div class="search">${ICONS.search}<input id="customerSearch" placeholder="Name, Firma, Nummer, E-Mail …"></div>
     <div id="customerList" class="list"></div>
   `);
@@ -762,28 +1011,55 @@ function customers(){
   };
   $('#customerSearch').addEventListener('input', render);
   $('[data-action="addCustomer"]').addEventListener('click', openCustomerModal);
+  $('[data-action="importContacts"]').addEventListener('click', () => $('#contactsVcfInput').click());
+  $('#contactsVcfInput').addEventListener('change', async e => {
+    const files = [...e.target.files];
+    if(!files.length) return;
+    try{
+      let contacts = [];
+      for(const file of files){
+        const raw = await file.text();
+        contacts.push(...parseVCardContacts(raw));
+      }
+      if(!contacts.length){ toast('Keine Kontakte in der Datei gefunden'); return; }
+      const seen = new Set();
+      contacts = contacts.filter(c => {
+        const key = `${normalizePhoneForMatch(c.phone)}|${String(c.email||'').toLowerCase()}|${String(c.name||'').toLowerCase()}`;
+        if(seen.has(key)) return false;
+        seen.add(key); return true;
+      });
+      modal = {type:'contactImport', contacts};
+      renderCurrent();
+    }catch(err){
+      console.error(err);
+      toast('Kontaktdatei konnte nicht gelesen werden');
+    }finally{
+      e.target.value = '';
+    }
+  });
   render();
 }
 
 function cloudAccountHTML(){
   if(!cloudConfigured){
     return `<div class="card cloud-card">
-      <div class="cloud-head">${ICONS.cloud}<div><strong>Cloud-Konto</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
-      <p class="small-note">Für Konten und Geräte-Sync muss einmal der mitgelieferte Cloudflare Worker eingerichtet werden. Danach reicht die Worker-Adresse in <b>cloud-config.js</b>.</p>
+      <div class="cloud-head">${ICONS.cloud}<div><strong>Sync-Konto</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
+      <p class="small-note">Google-Sync muss nur einmal eingerichtet werden. Danach meldet ihr euch hier nur mit Benutzername + Passwort an – keine E-Mail in der App nötig.</p>
     </div>`;
   }
   if(currentUser){
     return `<div class="card cloud-card">
-      <div class="cloud-head">${ICONS.cloud}<div class="grow"><strong>Cloud-Konto</strong><small>${escapeHTML(currentUser.email || '')}</small></div><span class="sync-pill" data-cloud-status>${cloudStatusText()}</span></div>
+      <div class="cloud-head">${ICONS.cloud}<div class="grow"><strong>Sync-Konto</strong><small>@${escapeHTML(currentUser.username || '')}</small></div><span class="sync-pill" data-cloud-status>${cloudStatusText()}</span></div>
       <div class="cloud-actions"><button class="secondary-btn pressable" data-action="cloudSync">Jetzt synchronisieren</button><button class="secondary-btn pressable" data-action="cloudLogout">Abmelden</button></div>
     </div>`;
   }
   return `<div class="card cloud-card">
-    <div class="cloud-head">${ICONS.cloud}<div><strong>Cloud-Konto</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
+    <div class="cloud-head">${ICONS.cloud}<div><strong>Sync-Konto</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
     <form id="cloudLoginForm" class="form cloud-form">
-      <div class="field"><label>E-Mail</label><input name="email" type="email" autocomplete="email" required></div>
+      <div class="field"><label>Benutzername</label><input name="username" autocomplete="username" minlength="3" maxlength="32" placeholder="z. B. Stella" required></div>
       <div class="field"><label>Passwort</label><input name="password" type="password" autocomplete="current-password" minlength="8" required></div>
       <div class="cloud-actions"><button class="primary-btn pressable" type="submit">Anmelden</button><button class="secondary-btn pressable" type="button" data-action="cloudSignup">Konto erstellen</button></div>
+      <button class="ghost-btn pressable recover-link" type="button" data-action="cloudRecoverOpen">Passwort vergessen / Wiederherstellungscode</button>
     </form>
   </div>`;
 }
@@ -791,8 +1067,17 @@ function cloudAccountHTML(){
 function more(){
   layout(`
     ${topbar('Mehr')}
-    <div class="section-head"><h2>Cloud & Konto</h2></div>
+    <div class="section-head"><h2>Google-Sync & Konto</h2></div>
     ${cloudAccountHTML()}
+    <div class="section-head"><h2>Backup</h2></div>
+    <div class="card backup-card">
+      <div class="backup-row"><div class="backup-icon">${ICONS.backup}</div><div class="grow"><strong>Automatisches Tages-Backup</strong><small id="backupStatus">Wird geprüft …</small></div></div>
+      <button class="primary-btn pressable backup-stella-btn" data-action="sendBackupStella">Backup an Stella schicken</button>
+      <div class="backup-actions"><button class="secondary-btn pressable" data-action="downloadBackup">Backup herunterladen</button><button class="secondary-btn pressable" data-action="restoreBackupFile">Backup importieren</button></div>
+      <button class="ghost-btn pressable backup-restore-latest" data-action="restoreLatestBackup">Letztes lokales Backup wiederherstellen</button>
+      <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
+      <p class="small-note backup-note">Google-Sync hält eure Geräte auf demselben Stand. Zusätzlich legt die App täglich ein lokales Backup an und behält die letzten 14.</p>
+    </div>
     <div class="section-head"><h2>Verwaltung</h2></div>
     <div class="card mini-list more-list">
       <button class="mini-row full-row pressable" data-nav="customers"><span class="grow"><b>Kunden</b><br><small>Name/Firma, Telefon, Adresse und E-Mail</small></span><span>›</span></button>
@@ -813,7 +1098,7 @@ function more(){
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     try{
-      await cloudSignIn(String(f.get('email')||'').trim(), String(f.get('password')||''));
+      await cloudSignIn(String(f.get('username')||'').trim(), String(f.get('password')||''));
       toast('Angemeldet und synchronisiert');
       more();
     }catch(err){ toast(err.message || 'Anmeldung fehlgeschlagen'); }
@@ -823,13 +1108,21 @@ function more(){
     if(!form?.reportValidity()) return;
     const f = new FormData(form);
     try{
-      await cloudSignUp(String(f.get('email')||'').trim(), String(f.get('password')||''));
+      const result = await cloudSignUp(String(f.get('username')||'').trim(), String(f.get('password')||''));
       toast('Konto erstellt und synchronisiert');
-      more();
+      modal = {type:'recoveryCode', code:result.recoveryCode};
+      renderCurrent();
     }catch(err){ toast(err.message || 'Konto konnte nicht erstellt werden'); }
   });
-  $('[data-action="cloudSync"]')?.addEventListener('click', async () => { await pushCloudState(); toast(cloudSyncState === 'synced' ? 'Cloud synchronisiert' : 'Sync fehlgeschlagen'); more(); });
+  $('[data-action="cloudRecoverOpen"]')?.addEventListener('click', () => { modal={type:'cloudRecover'}; renderCurrent(); });
+  $('[data-action="cloudSync"]')?.addEventListener('click', async () => { await pushCloudState(); toast(cloudSyncState === 'synced' ? 'Google synchronisiert' : 'Sync fehlgeschlagen'); more(); });
   $('[data-action="cloudLogout"]')?.addEventListener('click', async () => { await cloudSignOut(); toast('Abgemeldet'); more(); });
+  $('[data-action="sendBackupStella"]')?.addEventListener('click', sendBackupToStella);
+  $('[data-action="downloadBackup"]')?.addEventListener('click', downloadBackupFile);
+  $('[data-action="restoreBackupFile"]')?.addEventListener('click', () => $('#backupFileInput')?.click());
+  $('#backupFileInput')?.addEventListener('change', restoreBackupFromFile);
+  $('[data-action="restoreLatestBackup"]')?.addEventListener('click', restoreLatestLocalBackup);
+  refreshBackupStatus();
 }
 
 function openEventModal(date){ modal = {type:'event', date}; renderCurrent(); }
@@ -849,6 +1142,24 @@ function bindModal(){
   $$('[data-close]').forEach(btn => btn.addEventListener('click', () => { modal = null; renderCurrent(); }));
   $('.modal-backdrop')?.addEventListener('click', e => { if(e.target.classList.contains('modal-backdrop')){ modal = null; renderCurrent(); } });
 
+  if(modal.type === 'recoveryCode'){
+    $('[data-action="copyRecoveryCode"]')?.addEventListener('click', async () => {
+      try{ await navigator.clipboard.writeText(modal.code || ''); toast('Code kopiert'); }
+      catch{ toast('Code bitte manuell kopieren'); }
+    });
+  }
+  if(modal.type === 'cloudRecover'){
+    $('#cloudRecoverForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = new FormData(e.currentTarget);
+      try{
+        const result = await cloudRecover(String(f.get('username')||'').trim(), String(f.get('recoveryCode')||'').trim(), String(f.get('newPassword')||''));
+        modal = {type:'recoveryCode', code:result.recoveryCode};
+        toast('Passwort geändert – neuer Wiederherstellungscode erstellt');
+        renderCurrent();
+      }catch(err){ toast(err.message || 'Zurücksetzen fehlgeschlagen'); }
+    });
+  }
   if(modal.type === 'event'){
     $('#eventForm').addEventListener('submit', e => {
       e.preventDefault(); const f = new FormData(e.currentTarget);
@@ -889,6 +1200,29 @@ function bindModal(){
       if(confirm('Eintrag wirklich löschen?')){ state.supplies = state.supplies.filter(x => x.id !== s.id); saveState(); modal = null; toast('Eintrag gelöscht'); supplies(); }
     });
   }
+  if(modal.type === 'contactImport'){
+    const boxes = () => $$('[data-contact-index]');
+    const updateImportCount = () => {
+      const btn = $('[data-action="importSelectedContacts"]');
+      if(!btn) return;
+      const count = boxes().filter(b => b.checked).length;
+      btn.textContent = count ? `${count} ausgewählte importieren` : 'Keine ausgewählt';
+      btn.disabled = count === 0;
+    };
+    $('[data-action="selectAllContacts"]').addEventListener('click', () => { boxes().forEach(b => b.checked = true); updateImportCount(); });
+    $('[data-action="selectNoContacts"]').addEventListener('click', () => { boxes().forEach(b => b.checked = false); updateImportCount(); });
+    boxes().forEach(b => b.addEventListener('change', updateImportCount));
+    $('[data-action="importSelectedContacts"]').addEventListener('click', () => {
+      const selected = boxes().filter(b => b.checked).map(b => modal.contacts[Number(b.dataset.contactIndex)]).filter(Boolean);
+      if(!selected.length) return;
+      const result = mergeImportedCustomers(selected);
+      saveState();
+      modal = null;
+      toast(`${result.added} neu · ${result.updated} ergänzt${result.skipped ? ` · ${result.skipped} doppelt` : ''}`);
+      customers();
+    });
+    updateImportCount();
+  }
   if(modal.type === 'customer'){
     $('#customerForm').addEventListener('submit', e => {
       e.preventDefault(); const f = new FormData(e.currentTarget);
@@ -925,10 +1259,14 @@ function bindModal(){
     $('#reminderForm').addEventListener('submit', async e => {
       e.preventDefault(); const f = new FormData(e.currentTarget);
       o.reminder = true; o.reminderAt = `${f.get('date')}T${f.get('time')}:00`; o.reminded = false;
-      if('Notification' in window){ try{ if(Notification.permission !== 'granted') await Notification.requestPermission(); }catch(err){} }
+      if(isNativeAndroid()){
+        scheduleNativeReminder(o);
+      }else if('Notification' in window){
+        try{ if(Notification.permission !== 'granted') await Notification.requestPermission(); }catch(err){}
+      }
       saveState(); scheduleReminderChecks(); modal = null; toast('Erinnerung gespeichert'); detail(o.id);
     });
-    $('[data-action="removeReminder"]')?.addEventListener('click', () => { o.reminder = false; o.reminderAt = null; o.reminded = false; saveState(); modal = null; scheduleReminderChecks(); toast('Erinnerung entfernt'); detail(o.id); });
+    $('[data-action="removeReminder"]')?.addEventListener('click', () => { cancelNativeReminder(o); o.reminder = false; o.reminderAt = null; o.reminded = false; saveState(); modal = null; scheduleReminderChecks(); toast('Erinnerung entfernt'); detail(o.id); });
   }
   if(modal.type === 'editOrder'){
     const o = state.orders.find(x => x.id === modal.id);
@@ -1004,6 +1342,182 @@ function downloadICSAll(){
   downloadBlob(`BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Auftragshelfer//DE\n${body}\nEND:VCALENDAR`, 'text/calendar;charset=utf-8', 'auftragshelfer-kalender.ics');
 }
 
+// ---- Lokale Tages-Backups -------------------------------------------------
+const BACKUP_DB_NAME = 'auftragshelfer_backups';
+const BACKUP_STORE = 'backups';
+const BACKUP_KEEP = 14;
+
+function openBackupDB(){
+  return new Promise((resolve, reject) => {
+    if(!('indexedDB' in window)) return reject(new Error('IndexedDB wird nicht unterstützt.'));
+    const req = indexedDB.open(BACKUP_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if(!db.objectStoreNames.contains(BACKUP_STORE)){
+        const store = db.createObjectStore(BACKUP_STORE, {keyPath:'id'});
+        store.createIndex('createdAt', 'createdAt');
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('Backup-Datenbank konnte nicht geöffnet werden.'));
+  });
+}
+function backupRecord(reason='auto'){
+  return {
+    id:`${Date.now()}-${uid()}`,
+    createdAt:Date.now(),
+    day:todayISO(),
+    reason,
+    version:10,
+    data:JSON.parse(JSON.stringify(state))
+  };
+}
+async function createLocalBackup(reason='auto'){
+  const db = await openBackupDB();
+  const record = backupRecord(reason);
+  await new Promise((resolve,reject) => {
+    const tx = db.transaction(BACKUP_STORE,'readwrite');
+    tx.objectStore(BACKUP_STORE).put(record);
+    tx.oncomplete=resolve;
+    tx.onerror=()=>reject(tx.error);
+  });
+  const all = await getLocalBackups();
+  const old = all.slice(BACKUP_KEEP);
+  if(old.length){
+    await new Promise((resolve,reject) => {
+      const tx = db.transaction(BACKUP_STORE,'readwrite');
+      const store = tx.objectStore(BACKUP_STORE);
+      old.forEach(x=>store.delete(x.id));
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error);
+    });
+  }
+  db.close();
+  localStorage.setItem('auftragshelfer_last_backup_day', todayISO());
+  localStorage.setItem('auftragshelfer_last_backup_at', String(record.createdAt));
+  return record;
+}
+async function getLocalBackups(){
+  const db = await openBackupDB();
+  const items = await new Promise((resolve,reject) => {
+    const tx = db.transaction(BACKUP_STORE,'readonly');
+    const req = tx.objectStore(BACKUP_STORE).getAll();
+    req.onsuccess=()=>resolve(req.result || []);
+    req.onerror=()=>reject(req.error);
+  });
+  db.close();
+  return items.sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
+}
+async function maybeDailyBackup(){
+  const lastDay = localStorage.getItem('auftragshelfer_last_backup_day');
+  if(lastDay === todayISO()) return false;
+  try{
+    await createLocalBackup('auto');
+    if(route.page === 'more') refreshBackupStatus();
+    return true;
+  }catch(err){
+    console.warn('Auto-Backup fehlgeschlagen', err);
+    return false;
+  }
+}
+function scheduleDailyBackups(){
+  if(backupTimer) clearInterval(backupTimer);
+  maybeDailyBackup();
+  backupTimer = setInterval(maybeDailyBackup, 60 * 60 * 1000);
+}
+function backupFilePayload(){
+  return {
+    app:'Auftragshelfer',
+    version:10,
+    exportedAt:new Date().toISOString(),
+    data:JSON.parse(JSON.stringify(state))
+  };
+}
+function downloadBackupFile(){
+  const payload = backupFilePayload();
+  const filename = `auftragshelfer-backup-${todayISO()}.json`;
+  downloadBlob(JSON.stringify(payload,null,2),'application/json;charset=utf-8',filename);
+  createLocalBackup('manual').catch(()=>{});
+  toast('Backup heruntergeladen');
+  setTimeout(refreshBackupStatus,200);
+}
+async function sendBackupToStella(){
+  const payload = backupFilePayload();
+  const filename = `auftragshelfer-backup-${todayISO()}.json`;
+  const json = JSON.stringify(payload,null,2);
+  const blob = new Blob([json], {type:'application/json;charset=utf-8'});
+  const file = new File([blob], filename, {type:'application/json'});
+  const stellaNumber = '4917624938564';
+  const message = `Auftragshelfer-Backup vom ${new Intl.DateTimeFormat('de-DE').format(new Date())}.`;
+
+  await createLocalBackup('stella-share').catch(()=>{});
+
+  // A browser cannot attach a generated file to a fixed WhatsApp contact by URL.
+  // On devices with file sharing support, share the real backup file through the system share sheet.
+  if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({files:[file], title:'Auftragshelfer Backup', text:`${message} Für Stella (+49 176 24938564).`});
+      toast('Backup zum Teilen geöffnet');
+      setTimeout(refreshBackupStatus,200);
+      return;
+    }catch(err){
+      if(err && err.name === 'AbortError') return;
+    }
+  }
+
+  // Fallback: save the backup file, then open Stella's WhatsApp chat directly.
+  downloadBlob(json,'application/json;charset=utf-8',filename);
+  const waText = encodeURIComponent(`${message}
+Die Backup-Datei wurde gerade gespeichert. Bitte über „+“ → Dokument anhängen.`);
+  openExternalUrl(`https://wa.me/${stellaNumber}?text=${waText}`);
+  toast('Backup gespeichert · WhatsApp geöffnet');
+  setTimeout(refreshBackupStatus,200);
+}
+async function restoreBackupFromFile(e){
+  const file = e.target.files?.[0];
+  if(!file) return;
+  try{
+    const parsed = JSON.parse(await file.text());
+    const candidate = parsed?.data || parsed;
+    if(!candidate || !Array.isArray(candidate.orders)) throw new Error('Ungültiges Backup.');
+    if(!confirm('Dieses Backup wiederherstellen? Der aktuelle Datenstand wird vorher lokal gesichert.')) return;
+    await createLocalBackup('before-restore').catch(()=>{});
+    state = normalizeStateShape(candidate);
+    saveState();
+    setTheme(state.settings.theme);
+    toast('Backup wiederhergestellt');
+    more();
+  }catch(err){
+    toast(err.message || 'Backup konnte nicht gelesen werden');
+  }finally{
+    e.target.value='';
+  }
+}
+async function restoreLatestLocalBackup(){
+  try{
+    const backups = await getLocalBackups();
+    const latest = backups[0];
+    if(!latest){ toast('Noch kein lokales Backup vorhanden'); return; }
+    if(!confirm(`Backup vom ${new Intl.DateTimeFormat('de-DE',{dateStyle:'medium',timeStyle:'short'}).format(new Date(latest.createdAt))} wiederherstellen?`)) return;
+    state = normalizeStateShape(latest.data);
+    saveState();
+    setTheme(state.settings.theme);
+    toast('Lokales Backup wiederhergestellt');
+    more();
+  }catch(err){ toast('Backup konnte nicht wiederhergestellt werden'); }
+}
+async function refreshBackupStatus(){
+  const el = document.getElementById('backupStatus');
+  if(!el) return;
+  try{
+    const backups = await getLocalBackups();
+    if(!backups.length){ el.textContent='Noch kein Backup vorhanden'; return; }
+    const latest=backups[0];
+    el.textContent=`Letztes Backup: ${new Intl.DateTimeFormat('de-DE',{dateStyle:'short',timeStyle:'short'}).format(new Date(latest.createdAt))} · ${backups.length} gespeichert`;
+  }catch(err){ el.textContent='Lokale Backups nicht verfügbar'; }
+}
+
+
 function showReminderNotification(order){
   const title = `Erinnerung: ${order.name}`;
   const body = `${(order.text || 'Auftrag').split('\n')[0]} · fällig bis ${fmtDate(order.due)}`;
@@ -1020,7 +1534,10 @@ function runReminderCheck(){
   state.orders.forEach(order => {
     if(order.reminder && order.reminderAt && !order.reminded){
       const t = new Date(order.reminderAt).getTime();
-      if(!Number.isNaN(t) && t <= now){ order.reminded = true; changed = true; showReminderNotification(order); }
+      if(!Number.isNaN(t) && t <= now){
+        order.reminded = true; changed = true;
+        if(!isNativeAndroid()) showReminderNotification(order);
+      }
     }
   });
   if(changed) saveState();
@@ -1032,7 +1549,14 @@ function scheduleReminderChecks(){
 }
 window.addEventListener('focus', runReminderCheck);
 document.addEventListener('visibilitychange', () => { if(!document.hidden) runReminderCheck(); });
+
+// Keep the installed app feeling like an app: block pinch/double-tap zoom and multi-touch zoom.
+['gesturestart','gesturechange','gestureend'].forEach(type => document.addEventListener(type, e => e.preventDefault(), {passive:false}));
+document.addEventListener('touchmove', e => { if(e.touches && e.touches.length > 1) e.preventDefault(); }, {passive:false});
+document.addEventListener('dblclick', e => e.preventDefault(), {passive:false});
+
 if('serviceWorker' in navigator){ window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {})); }
 scheduleReminderChecks();
 home();
-initCloud();
+syncNativeReminders();
+initCloud().finally(() => { syncNativeReminders(); scheduleDailyBackups(); });

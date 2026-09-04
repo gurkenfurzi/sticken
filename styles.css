@@ -13,7 +13,7 @@
   font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:inherit;overflow:hidden;overscroll-behavior:none}
+html,body{margin:0;width:100%;height:100%;background:var(--bg);color:var(--text);font-family:inherit;overflow:hidden;overscroll-behavior:none}
 body{touch-action:manipulation}
 button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer}
@@ -91,3 +91,52 @@ img{display:block;max-width:100%}
 .customer-main span{font-size:12px;color:#514940}
 .customer-main small{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chevron{font-size:24px;color:#aa9a8a;font-weight:300}
+.backup-card{padding:14px;display:flex;flex-direction:column;gap:13px}
+.backup-row{display:flex;align-items:center;gap:12px}
+.backup-row .grow{flex:1;min-width:0}
+.backup-row strong{display:block;font-size:14px;margin-bottom:3px}
+.backup-row small{display:block;color:var(--muted);font-size:11px}
+.backup-icon{width:42px;height:42px;border-radius:13px;background:var(--surface-2);display:grid;place-items:center;color:var(--accent-strong);flex:0 0 42px}
+.backup-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.backup-restore-latest{align-self:flex-start;text-align:left}
+.backup-note{margin:0}
+.backup-stella-btn{margin:0}
+.recover-link{margin-top:6px;text-align:left}
+.recovery-card{padding:16px}
+.recovery-card p{margin:0 0 13px;line-height:1.45;font-size:13px}
+.recovery-code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;font-size:17px;font-weight:750;letter-spacing:.05em;word-break:break-all;background:var(--surface-2);border:1px solid var(--line);padding:14px;border-radius:14px;margin-bottom:12px;text-align:center}
+@media(max-width:380px){.backup-actions{grid-template-columns:1fr}}
+
+
+/* App containment: no page rubber-band/zoom outside the app shell. */
+html,body{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
+#app{width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
+.app-shell{width:100%;height:100dvh;max-height:100dvh;overscroll-behavior:none}
+.screen{overscroll-behavior-y:contain;touch-action:pan-y}
+input,textarea,select{font-size:16px}
+.customer-import-card{padding:14px;margin-bottom:12px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}
+.customer-import-copy{min-width:0;display:flex;flex-direction:column;gap:4px}
+.customer-import-copy strong{font-size:14px}
+.customer-import-copy small{font-size:11px;line-height:1.35;color:var(--muted)}
+.import-all-btn{min-height:42px;padding:0 12px;white-space:nowrap}
+@media(max-width:390px){.customer-import-card{grid-template-columns:1fr}.import-all-btn{width:100%}}
+
+/* v13: Übersicht warning + contact selection */
+.metric.open .num{color:#9b6f48}
+.due-warning{
+  width:100%;border:1px solid #e7b9a8;background:#fff4ef;color:#7d3f31;
+  border-radius:16px;padding:11px 12px;margin:0 0 12px;display:grid;
+  grid-template-columns:34px 1fr auto;gap:10px;align-items:center;text-align:left;
+  box-shadow:0 5px 16px rgba(135,64,42,.055)
+}
+.due-warning-icon{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#d9785d;color:#fff;font-weight:800;font-size:16px}
+.due-warning b{display:block;font-size:13px;margin-bottom:2px}.due-warning small{display:block;color:#9b5d4e;font-size:11px}.due-warning .chevron{font-size:22px;color:#b37c6d}
+.contact-select-modal{max-height:90dvh;display:flex;flex-direction:column}
+.contact-select-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 10px;border-bottom:1px solid var(--line)}
+.contact-select-toolbar>div{display:flex;gap:10px}.contact-select-toolbar span{font-size:13px;color:var(--muted)}
+.contact-select-list{display:flex;flex-direction:column;gap:7px;overflow:auto;min-height:120px;max-height:56dvh;padding:10px 1px 12px}
+.contact-select-row{display:grid;grid-template-columns:24px 38px 1fr;gap:9px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:9px 10px}
+.contact-select-row input{width:18px;height:18px;accent-color:var(--accent)}
+.contact-select-row .customer-avatar{width:36px;height:36px}
+.contact-select-main{min-width:0;display:flex;flex-direction:column;gap:2px}.contact-select-main b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.contact-select-main small{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.primary-btn:disabled{opacity:.45;box-shadow:none}
