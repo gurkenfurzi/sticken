@@ -93,7 +93,11 @@ function loadState(){
 function saveLocalOnly(){ localStorage.setItem("auftragshelfer", JSON.stringify(state)); }
 function saveState(){
   saveLocalOnly();
-  if(currentUser && cloudConfigured && !cloudInitializing) scheduleCloudSave();
+  cloudLastLocalChangeAt = Date.now();
+  if(currentUser && cloudConfigured && !cloudInitializing){
+    cloudDirty = true;
+    scheduleCloudSave();
+  }
 }
 function setTheme(name){
   const root = document.documentElement;
@@ -125,6 +129,9 @@ let cloudInitializing = false;
 let cloudToken = localStorage.getItem('auftragshelfer_cloud_token') || '';
 let cloudLastUpdated = 0;
 let cloudPollTimer = null;
+let cloudPushInFlight = false;
+let cloudDirty = false;
+let cloudLastLocalChangeAt = 0;
 let backupTimer = null;
 const googlePhotoCache = new Map();
 
@@ -190,11 +197,16 @@ function syncNativeReminders(){
 let selectedCustomerForNewOrder = null;
 setTheme(state.settings.theme);
 
-function cloudConfigValid(){
-  const cfg = window.GOOGLE_SYNC_CONFIG || {};
-  return Boolean(cfg.scriptUrl && !String(cfg.scriptUrl).includes('DEINE_') && !String(cfg.scriptUrl).includes('YOUR_'));
+function configuredScriptUrl(){
+  const saved = String(localStorage.getItem('auftragshelfer_google_script_url') || '').trim();
+  const fileValue = String(window.GOOGLE_SYNC_CONFIG?.scriptUrl || '').trim();
+  return saved || fileValue;
 }
-function cloudBase(){ return String(window.GOOGLE_SYNC_CONFIG?.scriptUrl || '').replace(/\/$/, ''); }
+function cloudConfigValid(){
+  const url = configuredScriptUrl();
+  return Boolean(url && !url.includes('DEINE_') && !url.includes('YOUR_') && /^https:\/\/script\.google\.com\/macros\/s\//.test(url));
+}
+function cloudBase(){ return configuredScriptUrl().replace(/\/$/, ''); }
 function googleActionForPath(path, method='GET'){
   const m = String(method || 'GET').toUpperCase();
   const map = {
@@ -311,14 +323,20 @@ async function initCloud(){
     }
   }finally{ cloudInitializing = false; }
 }
-function scheduleCloudSave(){
+function scheduleCloudSave(delay=700){
   clearTimeout(cloudSaveTimer);
   cloudSyncState = 'saving';
-  cloudSaveTimer = setTimeout(pushCloudState, 900);
+  updateCloudStatusOnly();
+  cloudSaveTimer = setTimeout(() => pushCloudState(), delay);
 }
 async function pushCloudState(){
   if(!currentUser || !cloudToken || !cloudConfigured) return;
+  if(cloudPushInFlight){ cloudDirty = true; return; }
+  cloudPushInFlight = true;
   cloudSyncState = 'saving';
+  updateCloudStatusOnly();
+  // This batch now represents all local edits that happened before the upload began.
+  cloudDirty = false;
   try{
     const cloudState = await prepareStateForCloud();
     const result = await cloudRequest('/api/state', {method:'PUT', body:JSON.stringify({data:cloudState})});
@@ -326,13 +344,26 @@ async function pushCloudState(){
     cloudSyncState = 'synced';
   }catch(err){
     console.error(err);
-    cloudSyncState = 'error';
+    cloudDirty = true;
+    cloudSyncState = navigator.onLine === false ? 'offline' : 'error';
+  }finally{
+    cloudPushInFlight = false;
+    updateCloudStatusOnly();
+    // If something was changed while pictures/state were uploading, send one more batch.
+    if(cloudDirty && currentUser && cloudConfigured && navigator.onLine !== false){
+      scheduleCloudSave(500);
+    }
   }
-  if(route.page === 'more') updateCloudStatusOnly();
 }
 async function pullCloudState(){
   if(!currentUser || !cloudToken || !cloudConfigured) return;
+  // Never overwrite a local edit which is still waiting to be uploaded.
+  if(cloudDirty || cloudPushInFlight || cloudSyncState === 'saving'){
+    scheduleCloudSave(250);
+    return;
+  }
   cloudSyncState = 'syncing';
+  updateCloudStatusOnly();
   try{
     const result = await cloudRequest('/api/state');
     if(result?.data){
@@ -345,12 +376,48 @@ async function pullCloudState(){
       syncNativeReminders();
       renderCurrent();
     }else{
+      cloudDirty = true;
       await pushCloudState();
     }
   }catch(err){
     console.error(err);
-    cloudSyncState = 'error';
+    cloudSyncState = navigator.onLine === false ? 'offline' : 'error';
+    updateCloudStatusOnly();
   }
+}
+async function checkCloudUpdates(force=false){
+  if(!currentUser || !cloudConfigured || !cloudToken) return;
+  if(navigator.onLine === false){ cloudSyncState = 'offline'; updateCloudStatusOnly(); return; }
+  if(cloudDirty || cloudPushInFlight || cloudSyncState === 'saving'){
+    scheduleCloudSave(250);
+    return;
+  }
+  if(!force && document.visibilityState === 'hidden') return;
+  try{
+    const meta = await cloudRequest('/api/state/meta');
+    if(Number(meta?.updatedAt || 0) > cloudLastUpdated) await pullCloudState();
+    else { cloudSyncState = 'synced'; updateCloudStatusOnly(); }
+  }catch(err){
+    if(err.status === 401){
+      cloudToken = '';
+      localStorage.removeItem('auftragshelfer_cloud_token');
+      currentUser = null;
+      cloudSyncState = 'local';
+    }else{
+      cloudSyncState = navigator.onLine === false ? 'offline' : 'error';
+      console.warn('Google-Sync check failed', err);
+    }
+    updateCloudStatusOnly();
+  }
+}
+function startCloudPolling(){
+  if(cloudPollTimer) clearInterval(cloudPollTimer);
+  // While the app is open, look for changes from other phones/laptops automatically.
+  cloudPollTimer = setInterval(() => {
+    if(document.visibilityState !== 'hidden') checkCloudUpdates(false);
+  }, 12000);
+  // Also check immediately whenever a session starts.
+  setTimeout(() => checkCloudUpdates(true), 800);
 }
 function updateCloudStatusOnly(){
   const el = document.querySelector('[data-cloud-status]');
@@ -360,14 +427,16 @@ function cloudStatusText(){
   if(!cloudConfigured) return 'Google-Sync noch nicht eingerichtet';
   if(!currentUser) return 'Nicht angemeldet';
   if(cloudSyncState === 'saving' || cloudSyncState === 'syncing') return 'Synchronisiert…';
-  if(cloudSyncState === 'error') return 'Sync-Fehler';
-  return 'Synchronisiert';
+  if(cloudSyncState === 'offline') return 'Offline – wird später synchronisiert';
+  if(cloudSyncState === 'error') return 'Sync-Fehler – versucht es automatisch erneut';
+  return '✓ Automatisch synchronisiert';
 }
 async function cloudSignUp(username, password){
   const result = await cloudRequest('/api/auth/register', {method:'POST', body:JSON.stringify({username,password})});
   cloudToken = result.token;
   localStorage.setItem('auftragshelfer_cloud_token', cloudToken);
   currentUser = result.user;
+  cloudDirty = true;
   await pushCloudState();
   startCloudPolling();
   return result;
@@ -391,19 +460,11 @@ async function cloudSignOut(){
   currentUser = null;
   cloudSyncState = 'local';
   cloudLastUpdated = 0;
+  cloudDirty = false;
+  cloudPushInFlight = false;
+  clearTimeout(cloudSaveTimer);
   googlePhotoCache.clear();
   if(cloudPollTimer) clearInterval(cloudPollTimer);
-}
-async function checkCloudUpdates(){
-  if(!currentUser || !cloudConfigured || cloudSyncState === 'saving' || cloudSyncState === 'syncing') return;
-  try{
-    const meta = await cloudRequest('/api/state/meta');
-    if(Number(meta?.updatedAt || 0) > cloudLastUpdated) await pullCloudState();
-  }catch(err){ if(err.status !== 401) console.warn('Google-Sync check failed', err); }
-}
-function startCloudPolling(){
-  if(cloudPollTimer) clearInterval(cloudPollTimer);
-  cloudPollTimer = setInterval(checkCloudUpdates, 30000);
 }
 
 function toast(msg){
@@ -1050,7 +1111,8 @@ function cloudAccountHTML(){
   if(currentUser){
     return `<div class="card cloud-card">
       <div class="cloud-head">${ICONS.cloud}<div class="grow"><strong>Sync-Konto</strong><small>@${escapeHTML(currentUser.username || '')}</small></div><span class="sync-pill" data-cloud-status>${cloudStatusText()}</span></div>
-      <div class="cloud-actions"><button class="secondary-btn pressable" data-action="cloudSync">Jetzt synchronisieren</button><button class="secondary-btn pressable" data-action="cloudLogout">Abmelden</button></div>
+      <p class="small-note auto-sync-note">Änderungen werden automatisch gespeichert. Andere Geräte prüfen im Hintergrund selbstständig auf neue Daten.</p>
+      <div class="cloud-actions single-action"><button class="secondary-btn pressable" data-action="cloudLogout">Abmelden</button></div>
     </div>`;
   }
   return `<div class="card cloud-card">
@@ -1062,6 +1124,83 @@ function cloudAccountHTML(){
       <button class="ghost-btn pressable recover-link" type="button" data-action="cloudRecoverOpen">Passwort vergessen / Wiederherstellungscode</button>
     </form>
   </div>`;
+}
+
+function syncPage(){
+  cloudConfigured = cloudConfigValid();
+  const currentUrl = cloudConfigured ? cloudBase() : '';
+  layout(`
+    ${topbar('Konto & Sync', true)}
+    <div class="section-head"><h2>Google-Verbindung</h2></div>
+    <div class="card sync-setup-card">
+      <div class="cloud-head">${ICONS.cloud}<div class="grow"><strong>Google Apps Script</strong><small>${cloudConfigured ? 'Verbunden / URL gespeichert' : 'Noch nicht verbunden'}</small></div></div>
+      <div class="field sync-url-field"><label>Web-App-URL</label><input id="syncScriptUrl" inputmode="url" value="${attr(currentUrl)}" placeholder="https://script.google.com/macros/s/.../exec"></div>
+      <div class="cloud-actions">
+        <button class="secondary-btn pressable" data-action="saveSyncUrl">URL speichern</button>
+        <button class="secondary-btn pressable" data-action="testSyncUrl">Verbindung testen</button>
+      </div>
+      <p class="small-note">Du kannst die Apps-Script-URL hier direkt eintragen. Dann musst du <code>google-sync-config.js</code> nicht mehr bearbeiten.</p>
+    </div>
+
+    <div class="section-head"><h2>App-Konto</h2></div>
+    ${cloudAccountHTML()}
+  `);
+
+  $('[data-action="saveSyncUrl"]')?.addEventListener('click', () => {
+    const url = String($('#syncScriptUrl')?.value || '').trim().replace(/\/$/, '');
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){
+      toast('Bitte die vollständige /exec Web-App-URL einfügen');
+      return;
+    }
+    localStorage.setItem('auftragshelfer_google_script_url', url);
+    cloudConfigured = cloudConfigValid();
+    toast('Google-URL gespeichert');
+    syncPage();
+  });
+
+  $('[data-action="testSyncUrl"]')?.addEventListener('click', async () => {
+    const inputUrl = String($('#syncScriptUrl')?.value || '').trim().replace(/\/$/, '');
+    if(inputUrl && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(inputUrl)){
+      localStorage.setItem('auftragshelfer_google_script_url', inputUrl);
+      cloudConfigured = cloudConfigValid();
+    }
+    if(!cloudConfigured){ toast('Erst die Apps-Script-URL eintragen'); return; }
+    try{
+      const url = new URL(cloudBase());
+      url.searchParams.set('action','health');
+      const response = await fetch(url.toString(), {cache:'no-store', redirect:'follow'});
+      const raw = await response.text();
+      const data = JSON.parse(raw);
+      if(data?.ok) toast('Verbindung funktioniert ✓');
+      else toast('Google antwortet, aber Health-Test fehlgeschlagen');
+    }catch(err){
+      console.error(err);
+      toast('Keine Verbindung – Bereitstellung/URL prüfen');
+    }
+  });
+
+  $('#cloudLoginForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    try{
+      await cloudSignIn(String(f.get('username')||'').trim(), String(f.get('password')||''));
+      toast('Angemeldet und synchronisiert');
+      syncPage();
+    }catch(err){ toast(err.message || 'Anmeldung fehlgeschlagen'); }
+  });
+  $('[data-action="cloudSignup"]')?.addEventListener('click', async () => {
+    const form = $('#cloudLoginForm');
+    if(!form?.reportValidity()) return;
+    const f = new FormData(form);
+    try{
+      const result = await cloudSignUp(String(f.get('username')||'').trim(), String(f.get('password')||''));
+      toast('Konto erstellt und synchronisiert');
+      modal = {type:'recoveryCode', code:result.recoveryCode};
+      renderCurrent();
+    }catch(err){ toast(err.message || 'Konto konnte nicht erstellt werden'); }
+  });
+  $('[data-action="cloudRecoverOpen"]')?.addEventListener('click', () => { modal={type:'cloudRecover'}; renderCurrent(); });
+  $('[data-action="cloudLogout"]')?.addEventListener('click', async () => { await cloudSignOut(); toast('Abgemeldet'); syncPage(); });
 }
 
 function more(){
@@ -1076,7 +1215,7 @@ function more(){
       <div class="backup-actions"><button class="secondary-btn pressable" data-action="downloadBackup">Backup herunterladen</button><button class="secondary-btn pressable" data-action="restoreBackupFile">Backup importieren</button></div>
       <button class="ghost-btn pressable backup-restore-latest" data-action="restoreLatestBackup">Letztes lokales Backup wiederherstellen</button>
       <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
-      <p class="small-note backup-note">Google-Sync hält eure Geräte auf demselben Stand. Zusätzlich legt die App täglich ein lokales Backup an und behält die letzten 14.</p>
+      <p class="small-note backup-note">Google-Sync hält eure Geräte automatisch auf demselben Stand. Zusätzlich legt die App täglich ein lokales Backup an und behält die letzten 14.</p>
     </div>
     <div class="section-head"><h2>Verwaltung</h2></div>
     <div class="card mini-list more-list">
@@ -1085,9 +1224,10 @@ function more(){
       <button class="mini-row full-row pressable" data-action="exportAll"><span class="grow"><b>Kalender exportieren</b><br><small>Als .ics Datei öffnen</small></span><span>›</span></button>
     </div>
     <div class="section-head"><h2>Einstellungen</h2></div>
-    <div class="card settings-card" style="padding:14px">
-      <div class="setting-row"><span>Farbthema</span><div class="palette">${['beige','sand','rose','sage'].map(t => `<button class="swatch pressable ${state.settings.theme===t?'active':''}" data-theme="${t}"></button>`).join('')}</div></div>
-      <div class="setting-row"><span>Beispieldaten</span><button class="ghost-btn pressable danger-btn" data-action="reset">Zurücksetzen</button></div>
+    <div class="card settings-card">
+      <button class="setting-row setting-link pressable" data-nav="sync"><span class="setting-left">${ICONS.settings}<span><b>Konto & Synchronisierung</b><small>Google-Verbindung, Login und automatischer Sync</small></span></span><span>›</span></button>
+      <div class="setting-row setting-padded"><span>Farbthema</span><div class="palette">${['beige','sand','rose','sage'].map(t => `<button class="swatch pressable ${state.settings.theme===t?'active':''}" data-theme="${t}"></button>`).join('')}</div></div>
+      <div class="setting-row setting-padded"><span>Beispieldaten</span><button class="ghost-btn pressable danger-btn" data-action="reset">Zurücksetzen</button></div>
     </div>
   `);
   $$('[data-theme]').forEach(btn => btn.addEventListener('click', () => { state.settings.theme = btn.dataset.theme; saveState(); setTheme(btn.dataset.theme); toast('Theme geändert'); more(); }));
@@ -1115,7 +1255,6 @@ function more(){
     }catch(err){ toast(err.message || 'Konto konnte nicht erstellt werden'); }
   });
   $('[data-action="cloudRecoverOpen"]')?.addEventListener('click', () => { modal={type:'cloudRecover'}; renderCurrent(); });
-  $('[data-action="cloudSync"]')?.addEventListener('click', async () => { await pushCloudState(); toast(cloudSyncState === 'synced' ? 'Google synchronisiert' : 'Sync fehlgeschlagen'); more(); });
   $('[data-action="cloudLogout"]')?.addEventListener('click', async () => { await cloudSignOut(); toast('Abgemeldet'); more(); });
   $('[data-action="sendBackupStella"]')?.addEventListener('click', sendBackupToStella);
   $('[data-action="downloadBackup"]')?.addEventListener('click', downloadBackupFile);
@@ -1297,6 +1436,7 @@ function go(page){
   if(page === 'more'){ route = {page}; return more(); }
   if(page === 'prices'){ route = {page}; return prices(); }
   if(page === 'customers'){ route = {page}; return customers(); }
+  if(page === 'sync'){ route = {page}; return syncPage(); }
 }
 function renderCurrent(){
   if(route.page === 'detail') detail(route.id);
@@ -1307,6 +1447,7 @@ function renderCurrent(){
   else if(route.page === 'more') more();
   else if(route.page === 'prices') prices();
   else if(route.page === 'customers') customers();
+  else if(route.page === 'sync') syncPage();
   else home();
 }
 
@@ -1547,8 +1688,26 @@ function scheduleReminderChecks(){
   reminderTimer = setInterval(runReminderCheck, 30000);
   setTimeout(runReminderCheck, 1000);
 }
-window.addEventListener('focus', runReminderCheck);
-document.addEventListener('visibilitychange', () => { if(!document.hidden) runReminderCheck(); });
+window.addEventListener('focus', () => {
+  runReminderCheck();
+  if(currentUser) checkCloudUpdates(true);
+});
+document.addEventListener('visibilitychange', () => {
+  if(!document.hidden){
+    runReminderCheck();
+    if(currentUser) checkCloudUpdates(true);
+  }
+});
+window.addEventListener('online', () => {
+  if(!currentUser) return;
+  cloudSyncState = cloudDirty ? 'saving' : 'syncing';
+  updateCloudStatusOnly();
+  if(cloudDirty) scheduleCloudSave(150);
+  else checkCloudUpdates(true);
+});
+window.addEventListener('offline', () => {
+  if(currentUser){ cloudSyncState = 'offline'; updateCloudStatusOnly(); }
+});
 
 // Keep the installed app feeling like an app: block pinch/double-tap zoom and multi-touch zoom.
 ['gesturestart','gesturechange','gestureend'].forEach(type => document.addEventListener(type, e => e.preventDefault(), {passive:false}));

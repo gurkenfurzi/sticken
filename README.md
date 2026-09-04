@@ -1,3 +1,35 @@
+# Auftragshelfer v16 – automatische Geräte-Synchronisierung
+
+In dieser Version muss **kein Synchronisieren-Knopf mehr gedrückt werden**. Sobald ein Gerät mit demselben App-Konto angemeldet ist, läuft der Geräte-Sync automatisch.
+
+## So funktioniert es
+
+- Jede Änderung (Auftrag, Kunde, Termin, Bestellung, Preis, Status, Bild usw.) wird lokal sofort gespeichert und nach kurzer Verzögerung automatisch zu Google hochgeladen.
+- Solange die App geöffnet ist, prüft sie ungefähr alle **12 Sekunden** automatisch, ob ein anderes Gerät etwas geändert hat.
+- Beim Öffnen der App, beim Zurückwechseln in die App und sobald die Internetverbindung wieder da ist, wird sofort erneut geprüft.
+- Änderungen, die offline gemacht wurden, bleiben lokal erhalten und werden automatisch hochgeladen, sobald das Gerät wieder online ist.
+- Unter **Mehr → Konto & Synchronisierung** steht nur noch der Status, z. B. `✓ Automatisch synchronisiert`, `Synchronisiert…` oder `Offline – wird später synchronisiert`.
+- Der frühere Button **„Jetzt synchronisieren“** wurde entfernt.
+
+Auf iPhone, Android und Laptop einfach mit **demselben Benutzernamen + Passwort** anmelden. Danach müssen die Nutzer für den normalen Betrieb nichts mehr beim Sync drücken.
+
+> Hinweis: Wenn zwei Geräte exakt gleichzeitig denselben Datensatz bearbeiten, gilt technisch die zuletzt gespeicherte Version. Für den normalen Ladenbetrieb mit wenigen Nutzern ist das in der Regel unproblematisch.
+
+---
+
+# Auftragshelfer v15 – Google-Sync Login sichtbar
+
+Diese Version behebt den häufigsten Fehler nach dem Wechsel von v13/v14: die alte PWA wurde aus dem Service-Worker-Cache geladen und der Sync-Bereich war dadurch nicht sichtbar.
+
+## Nach dem Upload
+1. Alle Dateien dieser Version auf GitHub Pages ersetzen.
+2. Die App im Browser einmal komplett neu laden. Falls die alte Oberfläche bleibt, die PWA vom Home-Bildschirm entfernen und die Seite neu öffnen/installieren.
+3. In der App: **Mehr → Einstellungen → Konto & Synchronisierung**.
+4. Dort die Google Apps Script Web-App-URL (`.../exec`) eintragen und **Verbindung testen** drücken.
+5. Danach direkt dort **Konto erstellen** oder **Anmelden**.
+
+Die Apps-Script-URL kann jetzt direkt in der App eingetragen werden; `google-sync-config.js` muss nicht mehr zwingend von Hand editiert werden.
+
 # Auftragshelfer v14 – Google-Sync statt Cloudflare
 
 Diese Version verwendet **kein Cloudflare** und verlangt **keine Zahlungsmethode**.
