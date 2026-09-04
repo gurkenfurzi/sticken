@@ -18,6 +18,8 @@ export default {
         response = await register(request, env);
       } else if (url.pathname === '/api/auth/login' && request.method === 'POST') {
         response = await login(request, env);
+      } else if (url.pathname === '/api/auth/recover' && request.method === 'POST') {
+        response = await recoverPassword(request, env);
       } else if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
         response = await logout(request, env);
       } else if (url.pathname === '/api/me' && request.method === 'GET') {
@@ -76,40 +78,67 @@ async function readJson(request) {
   if (len > 1_900_000) fail('Anfrage ist zu groß', 413);
   try { return await request.json(); } catch { fail('Ungültige Daten', 400); }
 }
-function normalizeEmail(email) { return String(email || '').trim().toLowerCase(); }
-function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
+function normalizeUsername(username) { return String(username || '').trim(); }
+function validUsername(username) { return /^[A-Za-z0-9._-]{3,32}$/.test(username); }
+function normalizeRecoveryCode(code) { return String(code || '').trim().toUpperCase(); }
 
 async function register(request, env) {
   const body = await readJson(request);
-  const email = normalizeEmail(body.email);
+  const username = normalizeUsername(body.username);
   const password = String(body.password || '');
-  if (!validEmail(email)) fail('Bitte eine gültige E-Mail eingeben');
+  if (!validUsername(username)) fail('Benutzername: 3–32 Zeichen, nur Buchstaben, Zahlen, Punkt, _ oder -');
   if (password.length < 8) fail('Passwort muss mindestens 8 Zeichen haben');
 
-  const exists = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
-  if (exists) fail('Für diese E-Mail gibt es bereits ein Konto', 409);
+  const exists = await env.DB.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE').bind(username).first();
+  if (exists) fail('Dieser Benutzername ist bereits vergeben', 409);
 
   const id = crypto.randomUUID();
   const salt = randomBase64(16);
   const hash = await hashPassword(password, salt);
+  const recoveryCode = randomRecoveryCode();
+  const recoveryHash = await sha256Base64(normalizeRecoveryCode(recoveryCode));
   const now = Date.now();
-  await env.DB.prepare('INSERT INTO users (id,email,password_hash,password_salt,created_at) VALUES (?,?,?,?,?)')
-    .bind(id, email, hash, salt, now).run();
+  await env.DB.prepare('INSERT INTO users (id,username,password_hash,password_salt,recovery_hash,created_at) VALUES (?,?,?,?,?,?)')
+    .bind(id, username, hash, salt, recoveryHash, now).run();
 
   const token = await createSession(id, env);
-  return json({ token, user:{ id, email } }, 201);
+  return json({ token, user:{ id, username }, recoveryCode }, 201);
 }
 
 async function login(request, env) {
   const body = await readJson(request);
-  const email = normalizeEmail(body.email);
+  const username = normalizeUsername(body.username);
   const password = String(body.password || '');
-  const row = await env.DB.prepare('SELECT id,email,password_hash,password_salt FROM users WHERE email = ?').bind(email).first();
-  if (!row) fail('E-Mail oder Passwort ist falsch', 401);
+  const row = await env.DB.prepare('SELECT id,username,password_hash,password_salt FROM users WHERE username = ? COLLATE NOCASE').bind(username).first();
+  if (!row) fail('Benutzername oder Passwort ist falsch', 401);
   const hash = await hashPassword(password, row.password_salt);
-  if (!constantTimeEqual(hash, row.password_hash)) fail('E-Mail oder Passwort ist falsch', 401);
+  if (!constantTimeEqual(hash, row.password_hash)) fail('Benutzername oder Passwort ist falsch', 401);
   const token = await createSession(row.id, env);
-  return json({ token, user:{ id:row.id, email:row.email } });
+  return json({ token, user:{ id:row.id, username:row.username } });
+}
+
+async function recoverPassword(request, env) {
+  const body = await readJson(request);
+  const username = normalizeUsername(body.username);
+  const recoveryCode = normalizeRecoveryCode(body.recoveryCode);
+  const newPassword = String(body.newPassword || '');
+  if (!validUsername(username)) fail('Benutzername ist ungültig');
+  if (!recoveryCode) fail('Wiederherstellungscode fehlt');
+  if (newPassword.length < 8) fail('Neues Passwort muss mindestens 8 Zeichen haben');
+
+  const row = await env.DB.prepare('SELECT id,recovery_hash FROM users WHERE username = ? COLLATE NOCASE').bind(username).first();
+  if (!row) fail('Benutzername oder Wiederherstellungscode ist falsch', 401);
+  const candidateHash = await sha256Base64(recoveryCode);
+  if (!constantTimeEqual(candidateHash, row.recovery_hash || '')) fail('Benutzername oder Wiederherstellungscode ist falsch', 401);
+
+  const newSalt = randomBase64(16);
+  const newHash = await hashPassword(newPassword, newSalt);
+  const nextRecoveryCode = randomRecoveryCode();
+  const nextRecoveryHash = await sha256Base64(normalizeRecoveryCode(nextRecoveryCode));
+  await env.DB.prepare('UPDATE users SET password_hash=?, password_salt=?, recovery_hash=? WHERE id=?')
+    .bind(newHash, newSalt, nextRecoveryHash, row.id).run();
+  await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(row.id).run();
+  return json({ ok:true, recoveryCode:nextRecoveryCode });
 }
 
 async function logout(request, env) {
@@ -142,7 +171,7 @@ async function requireUser(request, env, queryToken='') {
   const tokenHash = await sha256Base64(token);
   const now = Date.now();
   const row = await env.DB.prepare(`
-    SELECT u.id,u.email,s.expires_at
+    SELECT u.id,u.username,s.expires_at
     FROM sessions s JOIN users u ON u.id=s.user_id
     WHERE s.token_hash=?
   `).bind(tokenHash).first();
@@ -150,7 +179,7 @@ async function requireUser(request, env, queryToken='') {
     if (row) await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(tokenHash).run();
     fail('Sitzung abgelaufen', 401);
   }
-  return { id:row.id, email:row.email };
+  return { id:row.id, username:row.username };
 }
 
 async function getState(request, env) {
@@ -219,7 +248,7 @@ function imageExtension(type) {
 
 async function hashPassword(password, saltB64) {
   const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name:'PBKDF2', salt:base64ToBytes(saltB64), iterations:40000, hash:'SHA-256' }, keyMaterial, 256);
+  const bits = await crypto.subtle.deriveBits({ name:'PBKDF2', salt:base64ToBytes(saltB64), iterations:120000, hash:'SHA-256' }, keyMaterial, 256);
   return bytesToBase64(new Uint8Array(bits));
 }
 async function sha256Base64(value) {
@@ -233,6 +262,14 @@ function constantTimeEqual(a, b) {
   let diff = 0;
   for (let i=0;i<aa.length;i++) diff |= aa[i] ^ bb[i];
   return diff === 0;
+}
+function randomRecoveryCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (const b of bytes) out += alphabet[b % alphabet.length];
+  return `AH-${out.slice(0,4)}-${out.slice(4,8)}-${out.slice(8,12)}-${out.slice(12,16)}-${out.slice(16,20)}`;
 }
 function randomBase64(length) {
   const bytes = new Uint8Array(length); crypto.getRandomValues(bytes); return bytesToBase64(bytes);

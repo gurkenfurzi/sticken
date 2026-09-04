@@ -1,6 +1,6 @@
 name = "auftragshelfer-api"
 main = "worker.js"
-compatibility_date = "2026-09-02"
+compatibility_date = "2026-09-03"
 
 [vars]
 # Deine GitHub-Pages-Adresse. Mehrere Origins mit Komma trennen.
