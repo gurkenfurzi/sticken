@@ -81,7 +81,7 @@ function normalizeStateShape(s){
   merged.supplies = (merged.supplies || []).map(s => ({photo:"", ordered:false, ...s}));
   merged.prices = (merged.prices || []).map(p => ({photo:"", price:null, ...p}));
   merged.offers = (merged.offers || []).map(o => ({photo:"", price:null, valid:"", ...o}));
-  merged.events = merged.events || [];
+  merged.events = (merged.events || []).map(e => ({time:"", note:"", done:false, type:"event", ...e}));
   return merged;
 }
 function loadState(){
@@ -122,6 +122,7 @@ function setTheme(name){
 let state = loadState();
 let route = {page:"home", id:null};
 let selectedDate = todayISO();
+let calendarViewMode = 'today';
 let modal = null;
 let reminderTimer = null;
 let pullSyncActive = false;
@@ -129,12 +130,12 @@ let pullSyncRefreshing = false;
 let pullSyncStartY = 0;
 let pullSyncDistance = 0;
 const PULL_SYNC_THRESHOLD = 72;
-let currentUser = null;
+let cloudToken = localStorage.getItem('auftragshelfer_cloud_token') || '';
+let currentUser = cloudToken ? {username:(localStorage.getItem('auftragshelfer_cloud_username') || 'Konto')} : null;
 let cloudConfigured = false;
-let cloudSyncState = 'local';
+let cloudSyncState = cloudToken ? 'syncing' : 'local';
 let cloudSaveTimer = null;
 let cloudInitializing = false;
-let cloudToken = localStorage.getItem('auftragshelfer_cloud_token') || '';
 let cloudLastUpdated = 0;
 let cloudPollTimer = null;
 let cloudPushInFlight = false;
@@ -317,6 +318,7 @@ async function initCloud(){
   try{
     const me = await cloudRequest('/api/me');
     currentUser = me.user;
+    localStorage.setItem('auftragshelfer_cloud_username', currentUser?.username || '');
     await pullCloudState();
     startCloudPolling();
   }catch(err){
@@ -444,6 +446,7 @@ async function cloudSignUp(username, password){
   cloudToken = result.token;
   localStorage.setItem('auftragshelfer_cloud_token', cloudToken);
   currentUser = result.user;
+  localStorage.setItem('auftragshelfer_cloud_username', currentUser?.username || username);
   cloudDirty = true;
   await pushCloudState();
   startCloudPolling();
@@ -454,6 +457,7 @@ async function cloudSignIn(username, password){
   cloudToken = result.token;
   localStorage.setItem('auftragshelfer_cloud_token', cloudToken);
   currentUser = result.user;
+  localStorage.setItem('auftragshelfer_cloud_username', currentUser?.username || username);
   await pullCloudState();
   startCloudPolling();
   return result;
@@ -556,12 +560,12 @@ function modalHTML(){
     </div></div>`;
   }
   if(modal.type === 'event'){
-    return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Termin eintragen</h2><button class="icon-btn pressable" data-close>×</button></div>
+    return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Termin / Aufgabe</h2><button class="icon-btn pressable" data-close>×</button></div>
       <form id="eventForm" class="form">
         <div class="field"><label>Titel</label><input name="title" required placeholder="z. B. Kunde holt ab"></div>
-        <div class="grid2"><div class="field"><label>Datum</label><input type="date" name="date" value="${modal.date}" required></div><div class="field"><label>Uhrzeit</label><input type="time" name="time" value="10:00"></div></div>
+        <div class="grid2"><div class="field"><label>Datum</label><input type="date" name="date" value="${modal.date}" required></div><div class="field"><label>Uhrzeit <span class="optional-label">optional</span></label><input type="time" name="time" value=""></div></div>
         <div class="field"><label>Notiz</label><textarea name="note" style="min-height:76px"></textarea></div>
-        <button class="primary-btn pressable">Termin speichern</button>
+        <button class="primary-btn pressable">Speichern</button>
       </form></div></div>`;
   }
   if(modal.type === 'editEvent'){
@@ -570,7 +574,7 @@ function modalHTML(){
     return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>Termin bearbeiten</h2><button class="icon-btn pressable" data-close>×</button></div>
       <form id="editEventForm" class="form">
         <div class="field"><label>Titel</label><input name="title" value="${attr(e.title)}" required></div>
-        <div class="grid2"><div class="field"><label>Datum</label><input type="date" name="date" value="${e.date}" required></div><div class="field"><label>Uhrzeit</label><input type="time" name="time" value="${e.time || ''}"></div></div>
+        <div class="grid2"><div class="field"><label>Datum</label><input type="date" name="date" value="${e.date}" required></div><div class="field"><label>Uhrzeit <span class="optional-label">optional</span></label><input type="time" name="time" value="${e.time || ''}"></div></div>
         <div class="field"><label>Notiz</label><textarea name="note" style="min-height:76px">${escapeHTML(e.note || '')}</textarea></div>
         <button class="primary-btn pressable">Änderungen speichern</button>
         <button type="button" class="secondary-btn pressable danger-btn" data-action="deleteEvent">Termin löschen</button>
@@ -888,58 +892,168 @@ function detail(id){
 function calendar(){
   layout(`
     ${topbar('Kalender', false, `<button class="circle-btn pressable" data-action="addEvent">${ICONS.plus}</button>`)}
-    <div class="calendar-head"><strong id="monthTitle"></strong><div class="month-actions"><button class="icon-btn pressable" data-cal="-1">${ICONS.back}</button><button class="icon-btn pressable rotate-180" data-cal="1">${ICONS.back}</button></div></div>
-    <div id="monthGrid" class="month-grid"></div>
-    <div class="section-head"><h2 id="dayTitle"></h2><button class="ghost-btn pressable" data-action="addEvent">+ Termin</button></div>
-    <div id="schedule" class="schedule"></div>
+    <div class="calendar-tabs" role="tablist">
+      ${['today','week','month','all'].map(m => `<button class="calendar-tab pressable ${calendarViewMode===m?'active':''}" data-cal-mode="${m}">${({today:'Heute',week:'Woche',month:'Monat',all:'Alle'})[m]}</button>`).join('')}
+    </div>
+    <button class="calendar-import-all pressable" data-action="exportCalendarAll">${ICONS.calendar}<span>Alle Termine in Kalender übernehmen</span></button>
+    <div id="calendarContent"></div>
   `);
-  let base = new Date(selectedDate + 'T12:00:00');
-  let viewYear = base.getFullYear(), viewMonth = base.getMonth();
-  const eventsForDate = (date) => {
-    const orderEvents = state.orders.filter(o => o.due === date).map(o => ({id:`order-${o.id}`, date:o.due, time:'09:00', title:`${o.name} – fällig`, note:(o.text || '').split('\n')[0], orderId:o.id}));
-    const map = new Map();
-    [...state.events.filter(e => e.date === date), ...orderEvents].forEach(e => map.set(e.id, e));
-    return [...map.values()];
+
+  const isoFromDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const dateFromISO = iso => new Date(iso + 'T12:00:00');
+  const addDays = (iso, amount) => { const d=dateFromISO(iso); d.setDate(d.getDate()+amount); return isoFromDate(d); };
+  const dayLabel = iso => new Intl.DateTimeFormat('de-DE',{weekday:'long',day:'2-digit',month:'long'}).format(dateFromISO(iso));
+  const shortDayLabel = iso => new Intl.DateTimeFormat('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'}).format(dateFromISO(iso));
+  const itemSort = (a,b) => {
+    if(a.date !== b.date) return a.date.localeCompare(b.date);
+    if(Boolean(a.time) !== Boolean(b.time)) return a.time ? -1 : 1;
+    return (a.time || '').localeCompare(b.time || '') || a.title.localeCompare(b.title);
   };
-  function drawSchedule(){
-    const d = new Date(selectedDate + 'T12:00:00');
-    $('#dayTitle').textContent = new Intl.DateTimeFormat('de-DE', { weekday:'long', day:'2-digit', month:'long' }).format(d);
-    const ev = eventsForDate(selectedDate).sort((a,b) => (a.time || '').localeCompare(b.time || ''));
-    $('#schedule').innerHTML = ev.length ? ev.map(e => `<div class="card event-card pressable" data-event-open="${e.orderId || ''}" data-event-edit="${e.orderId ? '' : e.id}"><div class="event-time">${escapeHTML(e.time || '')}</div><div class="event-line"></div><div class="event-info"><strong>${escapeHTML(e.title)}</strong><span>${escapeHTML(e.note || '')}</span></div><button class="icon-btn pressable" data-event-ics="${e.id}">${ICONS.calendar}</button></div>`).join('') : `<div class="card empty">Keine Termine an diesem Tag.</div>`;
-    $$('[data-event-ics]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); const all = [...state.events, ...eventsForDate(selectedDate)]; const item = all.find(x => x.id === btn.dataset.eventIcs); if(item) downloadICS(item); }));
-    $$('[data-event-open]').forEach(card => card.addEventListener('click', () => {
-      if(card.dataset.eventOpen){ route = {page:'detail', id:card.dataset.eventOpen}; detail(card.dataset.eventOpen); }
-      else if(card.dataset.eventEdit){ openEditEventModal(card.dataset.eventEdit); }
+  const calendarItems = () => {
+    const manual = state.events.map(e => ({
+      key:`event:${e.id}`, kind:'event', id:e.id, date:e.date, time:e.time || '', title:e.title || 'Termin', note:e.note || '', done:!!e.done, badge:'Termin'
+    }));
+    const orders = state.orders.filter(o => o.due).map(o => ({
+      key:`order:${o.id}`, kind:'order', id:o.id, date:o.due, time:'', title:o.name || 'Auftrag', note:(o.text || '').split('\n')[0] || 'Auftrag', done:o.status==='done', badge:'Auftrag'
+    }));
+    return [...manual, ...orders].sort(itemSort);
+  };
+  const itemsForDate = date => calendarItems().filter(i => i.date === date);
+  const setDone = (item, done) => {
+    if(item.kind === 'event'){
+      const e = state.events.find(x => x.id === item.id);
+      if(e) e.done = done;
+    }else{
+      const o = state.orders.find(x => x.id === item.id);
+      if(o){
+        if(done){ o.status='done'; o.ready=true; }
+        else if(o.status==='done'){ o.status='open'; o.ready=false; }
+      }
+    }
+    saveState();
+  };
+  const entryHTML = item => `<div class="calendar-entry card ${item.done?'completed':''}" data-entry-key="${attr(item.key)}">
+    <button class="calendar-check pressable ${item.done?'checked':''}" data-check-kind="${item.kind}" data-check-id="${item.id}" aria-label="${item.done?'Als offen markieren':'Abhaken'}">${item.done?'✓':''}</button>
+    <div class="calendar-entry-time ${item.time?'':'no-time'}">${item.time ? escapeHTML(item.time) : 'Ohne<br>Uhrzeit'}</div>
+    <button class="calendar-entry-main pressable" data-open-kind="${item.kind}" data-open-id="${item.id}">
+      <strong>${escapeHTML(item.title)}</strong>
+      ${item.note ? `<span>${escapeHTML(item.note)}</span>` : ''}
+    </button>
+    <span class="calendar-entry-badge ${item.kind}">${escapeHTML(item.badge)}</span>
+  </div>`;
+  const emptyHTML = msg => `<div class="card empty calendar-empty">${escapeHTML(msg)}</div>`;
+  const bindEntries = () => {
+    $$('[data-check-kind]').forEach(btn => btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const item = calendarItems().find(i => i.kind===btn.dataset.checkKind && i.id===btn.dataset.checkId);
+      if(!item) return;
+      const nextDone = !item.done;
+      setDone(item, nextDone);
+      toast(nextDone ? 'Abgehakt ✓' : 'Als offen markiert');
+      drawCurrent();
+    }));
+    $$('[data-open-kind]').forEach(btn => btn.addEventListener('click', () => {
+      if(btn.dataset.openKind === 'order'){ route={page:'detail',id:btn.dataset.openId}; detail(btn.dataset.openId); }
+      else openEditEventModal(btn.dataset.openId);
     }));
     bindPressables();
+  };
+
+  let viewDate = selectedDate || todayISO();
+  const monthDate = dateFromISO(viewDate);
+  let viewYear = monthDate.getFullYear();
+  let viewMonth = monthDate.getMonth();
+
+  function drawToday(){
+    selectedDate = todayISO();
+    const items = itemsForDate(selectedDate);
+    $('#calendarContent').innerHTML = `
+      <div class="calendar-section-head"><div><h2>Heute</h2><span>${escapeHTML(dayLabel(selectedDate))}</span></div><span class="calendar-count">${items.length} ${items.length===1?'Eintrag':'Einträge'}</span></div>
+      <div class="calendar-entry-list">${items.length ? items.map(entryHTML).join('') : emptyHTML('Heute ist nichts eingetragen.')}</div>
+      <button class="calendar-add-bottom pressable" data-calendar-add>${ICONS.plus}<span>Termin / Aufgabe hinzufügen</span></button>`;
+    bindEntries();
+    $('[data-calendar-add]')?.addEventListener('click', () => openEventModal(selectedDate));
   }
-  function draw(){
-    const first = new Date(viewYear, viewMonth, 1), last = new Date(viewYear, viewMonth + 1, 0);
-    $('#monthTitle').textContent = new Intl.DateTimeFormat('de-DE', { month:'long', year:'numeric' }).format(first);
-    const names = ['Mo','Di','Mi','Do','Fr','Sa','So'];
-    let html = names.map(n => `<div class="day-name">${n}</div>`).join('');
-    const mondayIndex = (first.getDay() + 6) % 7;
-    for(let i=0;i<mondayIndex;i++){
-      const d = new Date(viewYear, viewMonth, 1 - (mondayIndex - i));
-      html += `<button class="day muted" data-date="${d.toISOString().slice(0,10)}">${d.getDate()}</button>`;
-    }
-    for(let day=1; day<=last.getDate(); day++){
-      const dt = new Date(viewYear, viewMonth, day), iso = dt.toISOString().slice(0,10);
-      html += `<button class="day pressable ${iso===selectedDate?'selected':''} ${eventsForDate(iso).length ? 'has-events':''}" data-date="${iso}">${day}</button>`;
-    }
-    const cells = mondayIndex + last.getDate(); const tail = (7 - (cells % 7)) % 7;
-    for(let i=1;i<=tail;i++){
-      const d = new Date(viewYear, viewMonth + 1, i);
-      html += `<button class="day muted" data-date="${d.toISOString().slice(0,10)}">${d.getDate()}</button>`;
-    }
-    $('#monthGrid').innerHTML = html;
-    $$('[data-date]').forEach(btn => btn.addEventListener('click', () => { selectedDate = btn.dataset.date; draw(); drawSchedule(); }));
-    drawSchedule();
-    bindPressables();
+
+  function drawWeek(){
+    const anchor = dateFromISO(viewDate);
+    const mondayOffset = (anchor.getDay()+6)%7;
+    anchor.setDate(anchor.getDate()-mondayOffset);
+    const start = isoFromDate(anchor), end = addDays(start,6);
+    const items = calendarItems().filter(i => i.date>=start && i.date<=end);
+    const byDate = new Map();
+    items.forEach(i => { if(!byDate.has(i.date)) byDate.set(i.date,[]); byDate.get(i.date).push(i); });
+    const groups = [...byDate.entries()].map(([date,arr]) => `<section class="calendar-day-group"><div class="calendar-day-group-title"><strong>${escapeHTML(shortDayLabel(date))}</strong><span>${arr.length}</span></div><div class="calendar-entry-list">${arr.map(entryHTML).join('')}</div></section>`).join('');
+    $('#calendarContent').innerHTML = `
+      <div class="calendar-range-head"><button class="icon-btn pressable" data-week-shift="-7">${ICONS.back}</button><div><strong>Diese Woche</strong><span>${fmtDate(start)} – ${fmtDate(end)}</span></div><button class="icon-btn pressable rotate-180" data-week-shift="7">${ICONS.back}</button></div>
+      ${groups || emptyHTML('In dieser Woche ist nichts eingetragen.')}
+      <button class="calendar-add-bottom pressable" data-calendar-add>${ICONS.plus}<span>Termin / Aufgabe hinzufügen</span></button>`;
+    $$('[data-week-shift]').forEach(btn => btn.addEventListener('click', () => { viewDate=addDays(viewDate,Number(btn.dataset.weekShift)); selectedDate=viewDate; drawWeek(); }));
+    $('[data-calendar-add]')?.addEventListener('click', () => openEventModal(selectedDate || todayISO()));
+    bindEntries();
   }
-  $$('[data-cal]').forEach(btn => btn.addEventListener('click', () => { viewMonth += Number(btn.dataset.cal); if(viewMonth < 0){ viewMonth = 11; viewYear--; } if(viewMonth > 11){ viewMonth = 0; viewYear++; } draw(); }));
-  $$('[data-action="addEvent"]').forEach(btn => btn.addEventListener('click', () => openEventModal(selectedDate)));
-  draw();
+
+  function drawMonth(){
+    const first = new Date(viewYear, viewMonth, 1), last = new Date(viewYear, viewMonth+1, 0);
+    const monthTitle = new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'}).format(first);
+    const names=['Mo','Di','Mi','Do','Fr','Sa','So'];
+    const mondayIndex=(first.getDay()+6)%7;
+    let grid=names.map(n=>`<div class="day-name">${n}</div>`).join('');
+    for(let i=0;i<mondayIndex;i++) grid += `<div class="day muted calendar-day-blank"></div>`;
+    for(let day=1;day<=last.getDate();day++){
+      const iso=isoFromDate(new Date(viewYear,viewMonth,day));
+      const list=itemsForDate(iso);
+      const has=list.length>0;
+      const doneAll=has && list.every(i=>i.done);
+      grid += `<button class="day pressable ${iso===selectedDate?'selected':''} ${has?'has-events':''} ${doneAll?'all-done':''}" data-date="${iso}">${day}</button>`;
+    }
+    const selectedItems=itemsForDate(selectedDate);
+    $('#calendarContent').innerHTML = `
+      <div class="calendar-month-card card">
+        <div class="calendar-month-head"><strong>${escapeHTML(monthTitle)}</strong><div class="month-actions"><button class="icon-btn pressable" data-month-shift="-1">${ICONS.back}</button><button class="icon-btn pressable rotate-180" data-month-shift="1">${ICONS.back}</button></div></div>
+        <div class="month-grid calendar-month-grid">${grid}</div>
+      </div>
+      <div class="calendar-section-head calendar-selected-head"><div><h2>${escapeHTML(dayLabel(selectedDate))}</h2></div><span class="calendar-count">${selectedItems.length} ${selectedItems.length===1?'Eintrag':'Einträge'}</span></div>
+      <div class="calendar-entry-list">${selectedItems.length ? selectedItems.map(entryHTML).join('') : emptyHTML('An diesem Tag ist nichts eingetragen.')}</div>
+      <button class="calendar-add-bottom pressable" data-calendar-add>${ICONS.plus}<span>Termin / Aufgabe hinzufügen</span></button>`;
+    $$('[data-month-shift]').forEach(btn => btn.addEventListener('click', () => {
+      viewMonth += Number(btn.dataset.monthShift);
+      if(viewMonth<0){viewMonth=11;viewYear--;} if(viewMonth>11){viewMonth=0;viewYear++;}
+      const selected = dateFromISO(selectedDate);
+      if(selected.getFullYear()!==viewYear || selected.getMonth()!==viewMonth) selectedDate=isoFromDate(new Date(viewYear,viewMonth,1));
+      drawMonth();
+    }));
+    $$('[data-date]').forEach(btn => btn.addEventListener('click', () => { selectedDate=btn.dataset.date; viewDate=selectedDate; drawMonth(); }));
+    $('[data-calendar-add]')?.addEventListener('click', () => openEventModal(selectedDate));
+    bindEntries();
+  }
+
+  function drawAll(){
+    const items = calendarItems().filter(i => i.date >= todayISO()).slice(0,120);
+    const byDate = new Map();
+    items.forEach(i => { if(!byDate.has(i.date)) byDate.set(i.date,[]); byDate.get(i.date).push(i); });
+    const groups = [...byDate.entries()].map(([date,arr]) => `<section class="calendar-day-group"><div class="calendar-day-group-title"><strong>${escapeHTML(dayLabel(date))}</strong><span>${arr.length}</span></div><div class="calendar-entry-list">${arr.map(entryHTML).join('')}</div></section>`).join('');
+    $('#calendarContent').innerHTML = `<div class="calendar-section-head"><div><h2>Alle kommenden</h2><span>Termine, Aufgaben und fällige Aufträge</span></div><span class="calendar-count">${items.length}</span></div>${groups || emptyHTML('Keine kommenden Einträge.')}<button class="calendar-add-bottom pressable" data-calendar-add>${ICONS.plus}<span>Termin / Aufgabe hinzufügen</span></button>`;
+    $('[data-calendar-add]')?.addEventListener('click', () => openEventModal(todayISO()));
+    bindEntries();
+  }
+
+  function drawCurrent(){
+    $$('.calendar-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.calMode===calendarViewMode));
+    if(calendarViewMode==='week') drawWeek();
+    else if(calendarViewMode==='month') drawMonth();
+    else if(calendarViewMode==='all') drawAll();
+    else drawToday();
+  }
+
+  $$('[data-cal-mode]').forEach(btn => btn.addEventListener('click', () => {
+    calendarViewMode = btn.dataset.calMode;
+    if(calendarViewMode==='today'){ selectedDate=todayISO(); viewDate=selectedDate; }
+    drawCurrent();
+  }));
+  $('[data-action="exportCalendarAll"]')?.addEventListener('click', () => { downloadICSAll(); toast('Kalenderdatei erstellt'); });
+  $$('[data-action="addEvent"]').forEach(btn => btn.addEventListener('click', () => openEventModal(calendarViewMode==='today'?todayISO():selectedDate)));
+  drawCurrent();
 }
 
 function supplies(){
@@ -1115,24 +1229,28 @@ function customers(){
 }
 
 function cloudAccountHTML(){
+  const rememberedUser = localStorage.getItem('auftragshelfer_cloud_username') || '';
   if(!cloudConfigured){
     return `<div class="card cloud-card">
-      <div class="cloud-head">${ICONS.cloud}<div><strong>Sync-Konto</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
-      <p class="small-note">Google-Sync muss nur einmal eingerichtet werden. Danach meldet ihr euch hier nur mit Benutzername + Passwort an – keine E-Mail in der App nötig.</p>
+      <div class="cloud-head">${ICONS.cloud}<div><strong>Google-Sync</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
+      <p class="small-note">Einmal die Google-Apps-Script-URL eintragen. Danach kannst du dich direkt hier anmelden.</p>
+      <div class="field sync-url-field"><label>Apps-Script-URL</label><input id="moreSyncScriptUrl" inputmode="url" placeholder="https://script.google.com/macros/s/.../exec"></div>
+      <div class="cloud-actions"><button class="primary-btn pressable" type="button" data-action="moreSaveSyncUrl">Google-Sync verbinden</button><button class="secondary-btn pressable" type="button" data-action="moreTestSyncUrl">Testen</button></div>
     </div>`;
   }
   if(currentUser){
     return `<div class="card cloud-card">
-      <div class="cloud-head">${ICONS.cloud}<div class="grow"><strong>Sync-Konto</strong><small>@${escapeHTML(currentUser.username || '')}</small></div><span class="sync-pill" data-cloud-status>${cloudStatusText()}</span></div>
-      <p class="small-note auto-sync-note">Änderungen werden automatisch gespeichert. Andere Geräte prüfen im Hintergrund selbstständig auf neue Daten.</p>
+      <div class="cloud-head">${ICONS.cloud}<div class="grow"><strong>Google-Sync</strong><small>@${escapeHTML(currentUser.username || '')}</small></div><span class="sync-pill" data-cloud-status>${cloudStatusText()}</span></div>
+      <p class="small-note auto-sync-note">Du bleibst auch nach Schließen oder Neustart der App angemeldet. Änderungen werden automatisch synchronisiert.</p>
       <div class="cloud-actions single-action"><button class="secondary-btn pressable" data-action="cloudLogout">Abmelden</button></div>
     </div>`;
   }
   return `<div class="card cloud-card">
-    <div class="cloud-head">${ICONS.cloud}<div><strong>Sync-Konto</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
+    <div class="cloud-head">${ICONS.cloud}<div><strong>Google-Sync anmelden</strong><small data-cloud-status>${cloudStatusText()}</small></div></div>
     <form id="cloudLoginForm" class="form cloud-form">
-      <div class="field"><label>Benutzername</label><input name="username" autocomplete="username" minlength="3" maxlength="32" placeholder="z. B. Stella" required></div>
+      <div class="field"><label>Benutzername</label><input name="username" autocomplete="username" minlength="3" maxlength="32" value="${attr(rememberedUser)}" placeholder="z. B. Stella" required></div>
       <div class="field"><label>Passwort</label><input name="password" type="password" autocomplete="current-password" minlength="8" required></div>
+      <div class="stay-signed-note">✓ Angemeldet bleiben ist automatisch aktiv</div>
       <div class="cloud-actions"><button class="primary-btn pressable" type="submit">Anmelden</button><button class="secondary-btn pressable" type="button" data-action="cloudSignup">Konto erstellen</button></div>
       <button class="ghost-btn pressable recover-link" type="button" data-action="cloudRecoverOpen">Passwort vergessen / Wiederherstellungscode</button>
     </form>
@@ -1217,6 +1335,7 @@ function syncPage(){
 }
 
 function more(){
+  cloudConfigured = cloudConfigValid();
   layout(`
     ${topbar('Mehr')}
 
@@ -1276,6 +1395,26 @@ function more(){
   $$('[data-theme]').forEach(btn => btn.addEventListener('click', () => { state.settings.theme = btn.dataset.theme; saveState(); setTheme(btn.dataset.theme); toast('Theme geändert'); more(); }));
   $('[data-action="exportAll"]').addEventListener('click', downloadICSAll);
   $('[data-action="reset"]')?.addEventListener('click', () => { if(confirm('Beispieldaten wirklich zurücksetzen?')){ state = normalizeStateShape(structuredClone(defaults)); saveState(); setTheme(state.settings.theme); scheduleReminderChecks(); home(); } });
+
+  $('[data-action="moreSaveSyncUrl"]')?.addEventListener('click', () => {
+    const url = String($('#moreSyncScriptUrl')?.value || '').trim().replace(/\/$/, '');
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){ toast('Bitte die vollständige /exec URL eintragen'); return; }
+    localStorage.setItem('auftragshelfer_google_script_url', url);
+    cloudConfigured = cloudConfigValid();
+    toast('Google-Sync verbunden');
+    more();
+  });
+  $('[data-action="moreTestSyncUrl"]')?.addEventListener('click', async () => {
+    const input = String($('#moreSyncScriptUrl')?.value || '').trim().replace(/\/$/, '');
+    if(input && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(input)){ localStorage.setItem('auftragshelfer_google_script_url', input); cloudConfigured = cloudConfigValid(); }
+    if(!cloudConfigured){ toast('Erst die Apps-Script-URL eintragen'); return; }
+    try{
+      const u=new URL(cloudBase()); u.searchParams.set('action','health');
+      const r=await fetch(u.toString(),{cache:'no-store',redirect:'follow'});
+      const d=JSON.parse(await r.text());
+      toast(d?.ok?'Verbindung funktioniert ✓':'Verbindung nicht bereit');
+    }catch(err){ toast('Keine Verbindung – URL/Bereitstellung prüfen'); }
+  });
 
   $('#cloudLoginForm')?.addEventListener('submit', async e => {
     e.preventDefault();
@@ -1470,7 +1609,7 @@ function bindModal(){
   if(modal.type === 'event'){
     $('#eventForm').addEventListener('submit', e => {
       e.preventDefault(); const f = new FormData(e.currentTarget);
-      state.events.push({id:uid(), date:f.get('date'), time:f.get('time'), title:String(f.get('title')||'').trim(), note:String(f.get('note')||'').trim()});
+      state.events.push({id:uid(), date:f.get('date'), time:f.get('time') || '', title:String(f.get('title')||'').trim(), note:String(f.get('note')||'').trim(), done:false, type:'event'});
       saveState(); modal = null; selectedDate = f.get('date'); toast('Termin gespeichert'); calendar();
     });
   }
@@ -1636,18 +1775,30 @@ async function compressImage(file){
   });
 }
 function icsEscape(s=''){ return String(s).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;'); }
-function toICSDate(date, time='09:00'){ return date.replaceAll('-', '') + 'T' + (time || '09:00').replace(':', '') + '00'; }
+function toICSDate(date, time=''){ return date.replaceAll('-', '') + (time ? 'T' + time.replace(':', '') + '00' : ''); }
+function nextICSDate(date){ const d=new Date(date+'T12:00:00'); d.setDate(d.getDate()+1); return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; }
 function downloadBlob(text, type, name){ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
+function icsEventBlock(ev){
+  const uidValue = uid() + '@auftragshelfer';
+  if(!ev.time){
+    return `BEGIN:VEVENT\nUID:${uidValue}\nDTSTART;VALUE=DATE:${toICSDate(ev.date)}\nDTEND;VALUE=DATE:${nextICSDate(ev.date)}\nSUMMARY:${icsEscape(ev.title)}\nDESCRIPTION:${icsEscape(ev.note || '')}\nEND:VEVENT`;
+  }
+  const start = toICSDate(ev.date, ev.time);
+  const endDate = new Date(ev.date + 'T' + ev.time + ':00');
+  endDate.setHours(endDate.getHours()+1);
+  const end = `${endDate.getFullYear()}${String(endDate.getMonth()+1).padStart(2,'0')}${String(endDate.getDate()).padStart(2,'0')}T${String(endDate.getHours()).padStart(2,'0')}${String(endDate.getMinutes()).padStart(2,'0')}00`;
+  return `BEGIN:VEVENT\nUID:${uidValue}\nDTSTART:${start}\nDTEND:${end}\nSUMMARY:${icsEscape(ev.title)}\nDESCRIPTION:${icsEscape(ev.note || '')}\nEND:VEVENT`;
+}
 function downloadICS(ev){
-  const start = toICSDate(ev.date, ev.time || '09:00');
-  const endDate = new Date(ev.date + 'T' + (ev.time || '09:00') + ':00'); endDate.setHours(endDate.getHours() + 1);
-  const end = endDate.getFullYear() + String(endDate.getMonth()+1).padStart(2,'0') + String(endDate.getDate()).padStart(2,'0') + 'T' + String(endDate.getHours()).padStart(2,'0') + String(endDate.getMinutes()).padStart(2,'0') + '00';
-  const text = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Auftragshelfer//DE\nBEGIN:VEVENT\nUID:${uid()}@auftragshelfer\nDTSTART:${start}\nDTEND:${end}\nSUMMARY:${icsEscape(ev.title)}\nDESCRIPTION:${icsEscape(ev.note || '')}\nEND:VEVENT\nEND:VCALENDAR`;
+  const text = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Auftragshelfer//DE\n${icsEventBlock(ev)}\nEND:VCALENDAR`;
   downloadBlob(text, 'text/calendar;charset=utf-8', 'termin.ics');
 }
 function downloadICSAll(){
-  const events = [...state.events, ...state.orders.map(o => ({date:o.due, time:'09:00', title:`Auftrag: ${o.name}`, note:o.text}))];
-  const body = events.map(ev => `BEGIN:VEVENT\nUID:${uid()}@auftragshelfer\nDTSTART:${toICSDate(ev.date, ev.time || '09:00')}\nDURATION:PT1H\nSUMMARY:${icsEscape(ev.title)}\nDESCRIPTION:${icsEscape(ev.note || '')}\nEND:VEVENT`).join('\n');
+  const events = [
+    ...state.events.map(e => ({date:e.date, time:e.time || '', title:e.title || 'Termin', note:e.note || ''})),
+    ...state.orders.filter(o => o.due).map(o => ({date:o.due, time:'', title:`Auftrag: ${o.name}`, note:o.text || ''}))
+  ].filter(e => e.date).sort((a,b) => a.date.localeCompare(b.date) || (a.time||'').localeCompare(b.time||''));
+  const body = events.map(icsEventBlock).join('\n');
   downloadBlob(`BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Auftragshelfer//DE\n${body}\nEND:VCALENDAR`, 'text/calendar;charset=utf-8', 'auftragshelfer-kalender.ics');
 }
 

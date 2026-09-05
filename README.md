@@ -1,3 +1,14 @@
+# Auftragshelfer v22 – neuer Kalender + Google-Sync Login
+
+Neu:
+- Kalender mit Heute / Woche / Monat / Alle
+- Termine und fällige Aufträge direkt im Kreis abhaken
+- Uhrzeit ist optional; Einträge können ohne Uhrzeit gespeichert werden
+- „Alle Termine in Kalender übernehmen“ erstellt eine .ics-Datei für den Geräte-Kalender
+- Google-Sync Login direkt unter Mehr
+- Login-Token bleibt lokal gespeichert, sodass die App nach Schließen/Neustart angemeldet bleibt
+- Apps-Script-Sitzungen laufen jetzt 3650 Tage. **Code.gs einmal neu bereitstellen**, damit neue Logins diese längere Sitzung bekommen.
+
 # Auftragshelfer v21 – Mehr neu geordnet
 
 # Auftragshelfer v20 – schönere Theme-Farben
