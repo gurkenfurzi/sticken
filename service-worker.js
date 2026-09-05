@@ -1,5 +1,5 @@
-const CACHE = "auftragshelfer-v24-better-theme";
-const ASSETS = ["./","./index.html","./styles.css?v=24","./app.js?v=24","./manifest.json?v=24","./google-sync-config.js?v=24","./icons/icon-32.png?v=24","./icons/icon-180-opaque.png?v=24","./icons/icon-192.png?v=24","./icons/icon-192-opaque.png?v=24","./icons/icon-512-opaque.png?v=24"];
+const CACHE = "auftragshelfer-v26-contacts-swipe-themes";
+const ASSETS = ["./","./index.html","./styles.css?v=26","./app.js?v=26","./manifest.json?v=26","./google-sync-config.js?v=26","./icons/icon-32.png?v=26","./icons/icon-180-opaque.png?v=26","./icons/icon-192.png?v=26","./icons/icon-192-opaque.png?v=26","./icons/icon-512-opaque.png?v=26"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
   self.skipWaiting();

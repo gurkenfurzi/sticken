@@ -41,7 +41,9 @@ const ICONS = {
   whatsapp:`<svg class="icon" viewBox="0 0 24 24"><path d="M20 11.5A8.5 8.5 0 0 1 7.6 19l-3.6 1 1-3.5A8.5 8.5 0 1 1 20 11.5Z"/><path d="M9.2 8.7c.2-.4.4-.4.7-.4h.5c.2 0 .4 0 .5.3l.8 1.8c.1.2.1.4 0 .5l-.4.6c-.1.1-.1.3 0 .4.4.8 1 1.4 1.8 1.8.1.1.3.1.4 0l.6-.4c.2-.1.4-.1.5 0l1.8.8c.3.1.3.3.3.5v.5c0 .3 0 .5-.4.7-.4.2-1 .3-1.7.1-2-.5-4.7-3.1-5.2-5.2-.2-.7-.1-1.3.1-1.7Z"/></svg>`,
   cloud:`<svg class="icon" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .8-7.9A6 6 0 0 0 6.4 8.4 4.8 4.8 0 0 0 7 18Z"/><path d="M12 10v6M9.5 13.5 12 16l2.5-2.5"/></svg>`,
   backup:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 5h13l3 3v11H4Z"/><path d="M8 5v5h8V5M8 19v-5h8v5"/></svg>`,
-  user:`<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20c.8-4 3.3-6 7.5-6s6.7 2 7.5 6"/></svg>`
+  user:`<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20c.8-4 3.3-6 7.5-6s6.7 2 7.5 6"/></svg>`,
+  edit:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 20h4l11-11-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>`,
+  trash:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>`
 };
 
 const defaults = {
@@ -102,11 +104,16 @@ function saveState(){
 function setTheme(name){
   const root = document.documentElement;
   const themes = {
-    beige:{accent:"#b38c78", accent2:"#ebddd2", strong:"#8e6957", bg:"#fbf6f2", surface:"#fffdfb", surface2:"#f5ebe3", surface3:"#ead8cc", line:"#eadccf", muted:"#7c7069"},
-    sand:{accent:"#be9b76", accent2:"#efe1d0", strong:"#947255", bg:"#fcf8f3", surface:"#fffdfa", surface2:"#f7ede2", surface3:"#ece0d0", line:"#ece0d2", muted:"#7f7264"},
-    rose:{accent:"#c89a93", accent2:"#f1deda", strong:"#9a7069", bg:"#fdf7f6", surface:"#fffdfc", surface2:"#f8eae7", surface3:"#efdad6", line:"#eee2df", muted:"#80706c"},
-    sage:{accent:"#9cab98", accent2:"#e1e7dd", strong:"#73806c", bg:"#f7f8f4", surface:"#fffefd", surface2:"#ebefe6", surface3:"#dde4d6", line:"#e1e6dc", muted:"#6f756d"},
-    mocha:{accent:"#b0998e", accent2:"#e9ddd8", strong:"#876f65", bg:"#faf7f5", surface:"#fffdfc", surface2:"#f4ece8", surface3:"#e8d8d2", line:"#e9ddd8", muted:"#776c68"}
+    beige:{accent:"#c9a690", accent2:"#f2e4d8", strong:"#9f7e6a", bg:"#fff9f5", surface:"#fffefd", surface2:"#faf0e8", surface3:"#f2e2d6", line:"#efe1d6", muted:"#87796f"},
+    sand:{accent:"#d8b496", accent2:"#f6e9db", strong:"#ab8868", bg:"#fffaf4", surface:"#fffefd", surface2:"#fcf1e4", surface3:"#f5e4d4", line:"#f0e3d6", muted:"#8a7b6d"},
+    rose:{accent:"#d7a4b0", accent2:"#f6e4e9", strong:"#aa7c87", bg:"#fff8fa", surface:"#fffdfd", surface2:"#faebef", surface3:"#f3dde3", line:"#f0e1e6", muted:"#89757d"},
+    sage:{accent:"#b6c5b0", accent2:"#e6eee3", strong:"#86957f", bg:"#f9fbf8", surface:"#fffefd", surface2:"#edf3ea", surface3:"#dee7da", line:"#e3e9df", muted:"#74806f"},
+    mocha:{accent:"#c8b3c0", accent2:"#f0e5ef", strong:"#998698", bg:"#fdf9fd", surface:"#fffdfd", surface2:"#f5edf5", surface3:"#ebdeea", line:"#ece1ec", muted:"#807481"},
+    pastelpink:{accent:"#e4a9bd", accent2:"#f9e3eb", strong:"#b97e93", bg:"#fff8fb", surface:"#fffefe", surface2:"#fcecf2", surface3:"#f5dce6", line:"#f1e0e7", muted:"#8b747e"},
+    wine:{accent:"#9e5264", accent2:"#ead7dc", strong:"#713748", bg:"#fbf7f8", surface:"#fffdfd", surface2:"#f3e9ec", surface3:"#e8d7dc", line:"#e8dce0", muted:"#75666b"},
+    lilac:{accent:"#b6a5d8", accent2:"#eee8f8", strong:"#8878ad", bg:"#fbf9ff", surface:"#fffefe", surface2:"#f3effa", surface3:"#e7e0f4", line:"#e9e3f1", muted:"#7b7487"},
+    babyblue:{accent:"#a8bfd7", accent2:"#e5eef7", strong:"#768fa9", bg:"#f8fbfe", surface:"#fffefe", surface2:"#edf4fa", surface3:"#dfeaf4", line:"#e2ebf2", muted:"#707d88"},
+    butter:{accent:"#d9c27e", accent2:"#f7efcf", strong:"#a68e4f", bg:"#fffdf6", surface:"#fffefa", surface2:"#fbf6df", surface3:"#f4eaca", line:"#eee8d3", muted:"#817963"}
   };
   const t = themes[name] || themes.beige;
   root.style.setProperty("--accent", t.accent);
@@ -653,6 +660,21 @@ function modalHTML(){
         <button class="primary-btn pressable">Speichern</button>
       </form></div></div>`;
   }
+  if(modal.type === 'editPrice'){
+    const collection = modal.kind === 'offers' ? state.offers : state.prices;
+    const item = collection.find(x => x.id === modal.id);
+    if(!item) return '';
+    return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>${modal.kind === 'offers' ? 'Angebot' : 'Preis'} bearbeiten</h2><button class="icon-btn pressable" data-close>×</button></div>
+      <form id="editPriceForm" class="form">
+        <div class="field"><label>Name</label><input name="name" value="${attr(item.name)}" required></div>
+        <div class="field"><label>Preis</label><input name="price" inputmode="decimal" value="${item.price ?? ''}" placeholder="frei lassen wenn offen"></div>
+        <div class="field"><label>Art</label><select name="kind"><option value="prices" ${modal.kind==='prices'?'selected':''}>Preis</option><option value="offers" ${modal.kind==='offers'?'selected':''}>Angebot</option></select></div>
+        <div class="field"><label>Gültig bis (nur Angebot)</label><input name="valid" type="date" value="${item.valid || ''}"></div>
+        <label class="photo-picker pressable"><input id="editPricePhoto" type="file" accept="image/*"><div class="photo-trigger">${ICONS.camera}<span><b>Bild</b><br><span class="small-note">Optional ändern</span></span></div><div id="editPricePreview" class="photos">${item.photo ? `<img class="photo" src="${photoSrc(item.photo)}">` : ``}</div></label>
+        <button class="primary-btn pressable">Änderungen speichern</button>
+        <button type="button" class="secondary-btn pressable danger-btn" data-action="deletePriceItem">${modal.kind === 'offers' ? 'Angebot' : 'Preis'} löschen</button>
+      </form></div></div>`;
+  }
   if(modal.type === 'reminder'){
     const o = state.orders.find(x => x.id === modal.id);
     const d = o.reminderAt ? o.reminderAt.slice(0,10) : (o.due || todayISO());
@@ -1084,23 +1106,67 @@ function prices(){
     ${topbar('Preise & Angebote', true, `<button class="icon-btn pressable" data-action="addPrice">${ICONS.plus}</button>`)}
     <div class="tabs"><button class="tab active pressable" data-tab="prices">Preise</button><button class="tab pressable" data-tab="offers">Angebote</button></div>
     <div class="search compact-search">${ICONS.search}<input id="priceSearch" placeholder="Suchen"></div>
+    <p class="swipe-hint">Nach links wischen zum Bearbeiten oder Löschen.</p>
     <div id="priceContent"></div>
   `);
   let tab = 'prices';
+  const rowHTML = (item, kind) => `<div class="swipe-row" data-swipe-row data-kind="${kind}" data-id="${item.id}">
+      <div class="swipe-actions" aria-hidden="false">
+        <button type="button" class="swipe-action edit pressable" data-price-edit="${item.id}" data-kind="${kind}" aria-label="Bearbeiten">${ICONS.edit}<span>Ändern</span></button>
+        <button type="button" class="swipe-action delete pressable" data-price-delete="${item.id}" data-kind="${kind}" aria-label="Löschen">${ICONS.trash}<span>Löschen</span></button>
+      </div>
+      <div class="card price-card swipe-content">
+        ${item.photo ? `<img class="thumb" src="${photoSrc(item.photo)}">` : `<div class="thumb placeholder">${ICONS.tag}</div>`}
+        <div class="price-copy"><strong>${escapeHTML(item.name)}</strong><br><small>${kind === 'offers' ? `Gültig bis ${fmtDate(item.valid)}` : 'Standardpreis'}</small></div>
+        <div class="price-value">${moneyMaybe(item.price)}</div>
+      </div>
+    </div>`;
   const render = () => {
     const q = $('#priceSearch').value.toLowerCase().trim();
-    if(tab === 'prices'){
-      const filtered = state.prices.filter(p => p.name.toLowerCase().includes(q));
-      $('#priceContent').innerHTML = `<div class="list">${filtered.length ? filtered.map(p => `<div class="card price-card">${p.photo ? `<img class="thumb" src="${photoSrc(p.photo)}">` : `<div class="thumb placeholder">${ICONS.tag}</div>`}<div><strong>${escapeHTML(p.name)}</strong><br><small>Standardpreis</small></div><div class="price-value">${moneyMaybe(p.price)}</div></div>`).join('') : `<div class="card empty">Keine Preise gefunden.</div>`}</div>`;
-    }else{
-      const filtered = state.offers.filter(a => a.name.toLowerCase().includes(q));
-      $('#priceContent').innerHTML = `<div class="list">${filtered.length ? filtered.map(a => `<div class="card price-card">${a.photo ? `<img class="thumb" src="${photoSrc(a.photo)}">` : `<div class="thumb placeholder">${ICONS.tag}</div>`}<div><strong>${escapeHTML(a.name)}</strong><br><small>Gültig bis ${fmtDate(a.valid)}</small></div><div class="price-value">${moneyMaybe(a.price)}</div></div>`).join('') : `<div class="card empty">Keine Angebote gefunden.</div>`}</div>`;
-    }
+    const source = tab === 'prices' ? state.prices : state.offers;
+    const filtered = source.filter(p => p.name.toLowerCase().includes(q));
+    $('#priceContent').innerHTML = `<div class="list swipe-list">${filtered.length ? filtered.map(p => rowHTML(p, tab)).join('') : `<div class="card empty">Keine ${tab === 'prices' ? 'Preise' : 'Angebote'} gefunden.</div>`}</div>`;
+    bindPriceSwipeRows(render);
+    bindPressables();
   };
   $('#priceSearch').addEventListener('input', render);
   $$('.tab').forEach(btn => btn.addEventListener('click', () => { $$('.tab').forEach(x => x.classList.remove('active')); btn.classList.add('active'); tab = btn.dataset.tab; render(); }));
   $('[data-action="addPrice"]').addEventListener('click', () => openPriceModal(tab));
   render();
+}
+
+function bindPriceSwipeRows(rerender){
+  let openRow = null;
+  const closeRow = row => { if(row){ row.classList.remove('revealed'); if(openRow === row) openRow = null; } };
+  $$('[data-swipe-row]').forEach(row => {
+    let startX = 0, startY = 0, moved = false;
+    const content = $('.swipe-content', row);
+    content.addEventListener('pointerdown', e => { startX = e.clientX; startY = e.clientY; moved = false; });
+    content.addEventListener('pointermove', e => { if(Math.abs(e.clientX-startX) > 8) moved = true; });
+    content.addEventListener('pointerup', e => {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if(Math.abs(dx) < 34 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
+      if(dx < 0){
+        if(openRow && openRow !== row) closeRow(openRow);
+        row.classList.add('revealed'); openRow = row;
+      }else closeRow(row);
+    });
+    content.addEventListener('click', e => { if(moved) e.preventDefault(); });
+  });
+  $$('[data-price-edit]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation(); openEditPriceModal(btn.dataset.kind, btn.dataset.priceEdit);
+  }));
+  $$('[data-price-delete]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const kind = btn.dataset.kind, id = btn.dataset.priceDelete;
+    const item = (kind === 'offers' ? state.offers : state.prices).find(x => x.id === id);
+    if(!item) return;
+    const label = kind === 'offers' ? 'Angebot' : 'Preis';
+    if(!confirm(`${label} „${item.name}“ wirklich löschen?\n\nDas kann nicht rückgängig gemacht werden.`)) return;
+    if(kind === 'offers') state.offers = state.offers.filter(x => x.id !== id);
+    else state.prices = state.prices.filter(x => x.id !== id);
+    saveState(); toast(`${label} gelöscht`); rerender();
+  }));
 }
 
 
@@ -1182,10 +1248,10 @@ function customers(){
     ${topbar('Kunden', true, `<button class="top-text-btn pressable" data-action="addCustomer">Neu</button>`)}
     <div class="customer-import-card card">
       <div class="customer-import-copy">
-        <strong>Kontakte importieren</strong>
-        <small>Funktioniert auf iPhone und Android: Kontaktdatei (.vcf) auswählen. Danach kannst du alle Kontakte auf einmal übernehmen oder einzelne abwählen.</small>
+        <strong>Aus Kontakten importieren</strong>
+        <small>Android kann Kontakte direkt öffnen. Auf iPhone wird automatisch der .vcf-Import verwendet. Danach kannst du Kontakte auswählen.</small>
       </div>
-      <button class="secondary-btn pressable import-all-btn" data-action="importContacts">Kontaktdatei auswählen</button>
+      <button class="secondary-btn pressable import-all-btn" data-action="importContacts">Kontakte öffnen</button>
       <input id="contactsVcfInput" type="file" accept=".vcf,text/vcard,text/x-vcard" multiple hidden>
     </div>
     <div class="search">${ICONS.search}<input id="customerSearch" placeholder="Name, Firma, Nummer, E-Mail …"></div>
@@ -1200,7 +1266,22 @@ function customers(){
   };
   $('#customerSearch').addEventListener('input', render);
   $('[data-action="addCustomer"]').addEventListener('click', openCustomerModal);
-  $('[data-action="importContacts"]').addEventListener('click', () => $('#contactsVcfInput').click());
+  $('[data-action="importContacts"]').addEventListener('click', async () => {
+    if(nativeImportAllContacts()) return;
+    if(navigator.contacts?.select){
+      try{
+        const picked = await navigator.contacts.select(['name','tel','email'], {multiple:true});
+        const contacts = (picked || []).map(c => ({
+          name:Array.isArray(c.name) ? (c.name[0] || '') : (c.name || ''),
+          phone:Array.isArray(c.tel) ? (c.tel[0] || '') : (c.tel || ''),
+          email:Array.isArray(c.email) ? (c.email[0] || '') : (c.email || ''),
+          address:'', note:''
+        })).filter(c => c.name || c.phone || c.email);
+        if(contacts.length){ modal = {type:'contactImport', contacts}; renderCurrent(); return; }
+      }catch(err){ if(err?.name !== 'AbortError') console.error(err); }
+    }
+    $('#contactsVcfInput').click();
+  });
   $('#contactsVcfInput').addEventListener('change', async e => {
     const files = [...e.target.files];
     if(!files.length) return;
@@ -1355,7 +1436,10 @@ function more(){
         <div class="more-accordion-body">
           <div class="theme-choice-row">
             <span>Theme auswählen</span>
-            <div class="palette">${['beige','sand','rose','sage','mocha'].map(t => `<button class="swatch pressable ${state.settings.theme===t?'active':''}" data-theme="${t}" aria-label="${t}"></button>`).join('')}</div>
+            <div class="palette theme-grid">${[
+              ['beige','Creme'],['sand','Peach'],['rose','Altrosa'],['sage','Salbei'],['mocha','Mauve'],
+              ['pastelpink','Pastellrosa'],['wine','Weinrot'],['lilac','Flieder'],['babyblue','Babyblau'],['butter','Butter']
+            ].map(([t,label]) => `<button class="theme-chip pressable ${state.settings.theme===t?'active':''}" data-theme="${t}" aria-label="${label}"><span class="swatch" data-theme-dot="${t}"></span><span>${label}</span></button>`).join('')}</div>
           </div>
           <div class="accordion-subrow">
             <span><b>Beispieldaten</b><small>Lokale Beispieldaten zurücksetzen</small></span>
@@ -1454,6 +1538,7 @@ function openEditSupplyModal(id){ modal = {type:'editSupply', id}; renderCurrent
 function openCustomerModal(){ modal = {type:'customer'}; renderCurrent(); }
 function openEditCustomerModal(id){ modal = {type:'editCustomer', id}; renderCurrent(); }
 function openPriceModal(tab='prices'){ modal = {type:'price', tab}; renderCurrent(); }
+function openEditPriceModal(kind, id){ modal = {type:'editPrice', kind, id}; renderCurrent(); }
 function openEditOrder(o){ modal = {type:'editOrder', id:o.id}; renderCurrent(); }
 function openReminderModal(o){ modal = {type:'reminder', id:o.id}; renderCurrent(); }
 
@@ -1699,6 +1784,28 @@ function bindModal(){
       const item = {id:uid(), name:String(f.get('name')||'').trim(), price:parseOptionalPrice(f.get('price')), photo};
       if(f.get('kind') === 'offers') state.offers.unshift({...item, valid:f.get('valid') || '2026-12-31'}); else state.prices.unshift(item);
       saveState(); modal = null; toast('Gespeichert'); prices();
+    });
+  }
+  if(modal.type === 'editPrice'){
+    const originalKind = modal.kind;
+    const source = originalKind === 'offers' ? state.offers : state.prices;
+    const item = source.find(x => x.id === modal.id);
+    let photo = item?.photo || '';
+    $('#editPricePhoto').addEventListener('change', async e => { const file = e.target.files[0]; if(file){ photo = await compressImage(file); $('#editPricePreview').innerHTML = `<img class="photo" src="${photo}">`; } });
+    $('#editPriceForm').addEventListener('submit', e => {
+      e.preventDefault(); const f = new FormData(e.currentTarget);
+      const newKind = String(f.get('kind') || originalKind);
+      const updated = {id:item.id, name:String(f.get('name')||'').trim(), price:parseOptionalPrice(f.get('price')), photo};
+      if(!updated.name){ toast('Bitte einen Namen eintragen'); return; }
+      if(originalKind === 'offers') state.offers = state.offers.filter(x => x.id !== item.id); else state.prices = state.prices.filter(x => x.id !== item.id);
+      if(newKind === 'offers') state.offers.unshift({...updated, valid:String(f.get('valid') || '').trim()}); else state.prices.unshift(updated);
+      saveState(); modal = null; toast('Änderungen gespeichert'); prices();
+    });
+    $('[data-action="deletePriceItem"]').addEventListener('click', () => {
+      const label = originalKind === 'offers' ? 'Angebot' : 'Preis';
+      if(!confirm(`${label} „${item.name}“ wirklich löschen?\n\nDas kann nicht rückgängig gemacht werden.`)) return;
+      if(originalKind === 'offers') state.offers = state.offers.filter(x => x.id !== item.id); else state.prices = state.prices.filter(x => x.id !== item.id);
+      saveState(); modal = null; toast(`${label} gelöscht`); prices();
     });
   }
   if(modal.type === 'reminder'){

@@ -1,3 +1,12 @@
+# Auftragshelfer v26 – Kontakte, Swipe-Bearbeitung & neue Themes
+
+- Kunden aus Kontakten importieren (direkt wo unterstützt, sonst .vcf-Fallback)
+- Preise und Angebote nach links wischen: Bearbeiten / Löschen
+- Sicherheitsabfrage vor dem Löschen
+- 10 harmonische Themes inkl. Weinrot, Pastellrosa, Flieder, Babyblau und Butter
+
+# Auftragshelfer v25 – schönere Pastell-Themes
+
 # Auftragshelfer v24 – schönere harmonische Themes
 
 # Auftragshelfer v23 – dauerhaft angemeldet
