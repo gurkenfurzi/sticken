@@ -1,9 +1,25 @@
 {
+  "id": "./",
   "name": "Auftragshelfer",
   "short_name": "Auftragshelfer",
+  "description": "Auftragsverwaltung für Stickerei und Druckerei",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#f8f2e9",
-  "theme_color": "#efe3d3",
-  "icons": []
+  "background_color": "#f8f3ec",
+  "theme_color": "#cdb19f",
+  "icons": [
+    {
+      "src": "icons/icon-192-opaque.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512-opaque.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }

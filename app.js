@@ -102,18 +102,21 @@ function saveState(){
 function setTheme(name){
   const root = document.documentElement;
   const themes = {
-    beige:{accent:"#bb8f67", accent2:"#e8d5bd", strong:"#9b6f48", bg:"#f8f3ec", surface2:"#f3e8db", surface3:"#ead7c0"},
-    sand:{accent:"#c29a6b", accent2:"#ead5b5", strong:"#997450", bg:"#faf4eb", surface2:"#f3e8da", surface3:"#ead9c6"},
-    rose:{accent:"#c48b80", accent2:"#efd1ca", strong:"#9f665d", bg:"#fcf3f1", surface2:"#f6e2de", surface3:"#efd1ca"},
-    sage:{accent:"#97a087", accent2:"#d9e0d1", strong:"#727d66", bg:"#f5f6f1", surface2:"#e7ebdf", surface3:"#dce3d3"}
+    beige:{accent:"#b98b63", accent2:"#ead8c4", strong:"#8f6647", bg:"#fbf6f0", surface:"#fffdfa", surface2:"#f4e8dc", surface3:"#ead8c4", line:"#e8dacc", muted:"#7c7065"},
+    sand:{accent:"#c59a68", accent2:"#efdfc6", strong:"#9e7548", bg:"#fcf8f1", surface:"#fffdfa", surface2:"#f7ecde", surface3:"#efdfc7", line:"#eadfce", muted:"#7a6d5f"},
+    rose:{accent:"#cb8f85", accent2:"#f1d8d3", strong:"#9f665f", bg:"#fdf6f5", surface:"#fffdfc", surface2:"#f8e7e3", surface3:"#efd6d1", line:"#ebddda", muted:"#7d6c69"},
+    sage:{accent:"#9aa58d", accent2:"#dfe6d8", strong:"#707b66", bg:"#f7f8f4", surface:"#fffefd", surface2:"#e9eee3", surface3:"#dbe3d2", line:"#dfe5d8", muted:"#6f766a"}
   };
   const t = themes[name] || themes.beige;
   root.style.setProperty("--accent", t.accent);
   root.style.setProperty("--accent-2", t.accent2);
   root.style.setProperty("--accent-strong", t.strong);
   root.style.setProperty("--bg", t.bg);
+  root.style.setProperty("--surface", t.surface);
   root.style.setProperty("--surface-2", t.surface2);
   root.style.setProperty("--surface-3", t.surface3);
+  root.style.setProperty("--line", t.line);
+  root.style.setProperty("--muted", t.muted);
 }
 
 let state = loadState();
@@ -121,6 +124,11 @@ let route = {page:"home", id:null};
 let selectedDate = todayISO();
 let modal = null;
 let reminderTimer = null;
+let pullSyncActive = false;
+let pullSyncRefreshing = false;
+let pullSyncStartY = 0;
+let pullSyncDistance = 0;
+const PULL_SYNC_THRESHOLD = 72;
 let currentUser = null;
 let cloudConfigured = false;
 let cloudSyncState = 'local';
@@ -671,8 +679,13 @@ function modalHTML(){
 }
 
 function layout(content){
-  $('#app').innerHTML = `<main class="app-shell"><section class="screen">${content}</section>${nav()}${modal ? modalHTML() : ''}</main>`;
+  $('#app').innerHTML = `<main class="app-shell">
+    <div class="pull-sync-indicator" id="pullSyncIndicator" aria-hidden="true">
+      <span class="pull-sync-icon">↻</span><span class="pull-sync-text">Zum Synchronisieren ziehen</span>
+    </div>
+    <section class="screen">${content}</section>${nav()}${modal ? modalHTML() : ''}</main>`;
   bindGlobal();
+  bindPullToSync();
 }
 
 function home(){
@@ -1206,33 +1219,63 @@ function syncPage(){
 function more(){
   layout(`
     ${topbar('Mehr')}
-    <div class="section-head"><h2>Google-Sync & Konto</h2></div>
-    ${cloudAccountHTML()}
-    <div class="section-head"><h2>Backup</h2></div>
-    <div class="card backup-card">
-      <div class="backup-row"><div class="backup-icon">${ICONS.backup}</div><div class="grow"><strong>Automatisches Tages-Backup</strong><small id="backupStatus">Wird geprüft …</small></div></div>
-      <button class="primary-btn pressable backup-stella-btn" data-action="sendBackupStella">Backup an Stella schicken</button>
-      <div class="backup-actions"><button class="secondary-btn pressable" data-action="downloadBackup">Backup herunterladen</button><button class="secondary-btn pressable" data-action="restoreBackupFile">Backup importieren</button></div>
-      <button class="ghost-btn pressable backup-restore-latest" data-action="restoreLatestBackup">Letztes lokales Backup wiederherstellen</button>
-      <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
-      <p class="small-note backup-note">Google-Sync hält eure Geräte automatisch auf demselben Stand. Zusätzlich legt die App täglich ein lokales Backup an und behält die letzten 14.</p>
+
+    <div class="card mini-list more-list more-primary-list">
+      <button class="mini-row full-row pressable" data-nav="prices"><span class="grow"><b>Preise & Angebote</b><br><small>Standardpreise und laufende Angebote</small></span><span class="chevron-small">›</span></button>
+      <button class="mini-row full-row pressable" data-nav="customers"><span class="grow"><b>Kunden</b><br><small>Name/Firma, Telefon, Adresse und E-Mail</small></span><span class="chevron-small">›</span></button>
+      <button class="mini-row full-row pressable" data-action="exportAll"><span class="grow"><b>Kalender exportieren</b><br><small>Alle Termine als .ics Datei öffnen</small></span><span class="chevron-small">›</span></button>
     </div>
-    <div class="section-head"><h2>Verwaltung</h2></div>
-    <div class="card mini-list more-list">
-      <button class="mini-row full-row pressable" data-nav="customers"><span class="grow"><b>Kunden</b><br><small>Name/Firma, Telefon, Adresse und E-Mail</small></span><span>›</span></button>
-      <button class="mini-row full-row pressable" data-nav="prices"><span class="grow"><b>Preise & Angebote</b><br><small>Standardpreise und laufende Angebote</small></span><span>›</span></button>
-      <button class="mini-row full-row pressable" data-action="exportAll"><span class="grow"><b>Kalender exportieren</b><br><small>Als .ics Datei öffnen</small></span><span>›</span></button>
-    </div>
-    <div class="section-head"><h2>Einstellungen</h2></div>
-    <div class="card settings-card">
-      <button class="setting-row setting-link pressable" data-nav="sync"><span class="setting-left">${ICONS.settings}<span><b>Konto & Synchronisierung</b><small>Google-Verbindung, Login und automatischer Sync</small></span></span><span>›</span></button>
-      <div class="setting-row setting-padded"><span>Farbthema</span><div class="palette">${['beige','sand','rose','sage'].map(t => `<button class="swatch pressable ${state.settings.theme===t?'active':''}" data-theme="${t}"></button>`).join('')}</div></div>
-      <div class="setting-row setting-padded"><span>Beispieldaten</span><button class="ghost-btn pressable danger-btn" data-action="reset">Zurücksetzen</button></div>
+
+    <div class="more-accordions">
+      <details class="card more-accordion">
+        <summary class="more-accordion-summary pressable">
+          <span class="setting-left"><span class="accordion-icon">${ICONS.palette || ICONS.settings}</span><span><b>Farbthema</b><small>Farben der App anpassen</small></span></span>
+          <span class="accordion-chevron">⌄</span>
+        </summary>
+        <div class="more-accordion-body">
+          <div class="theme-choice-row">
+            <span>Theme auswählen</span>
+            <div class="palette">${['beige','sand','rose','sage'].map(t => `<button class="swatch pressable ${state.settings.theme===t?'active':''}" data-theme="${t}" aria-label="${t}"></button>`).join('')}</div>
+          </div>
+          <div class="accordion-subrow">
+            <span><b>Beispieldaten</b><small>Lokale Beispieldaten zurücksetzen</small></span>
+            <button class="ghost-btn pressable danger-btn" data-action="reset">Zurücksetzen</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="card more-accordion">
+        <summary class="more-accordion-summary pressable">
+          <span class="setting-left"><span class="accordion-icon">${ICONS.settings}</span><span><b>Google-Sync & Konto</b><small>Login und automatische Gerätesynchronisierung</small></span></span>
+          <span class="accordion-chevron">⌄</span>
+        </summary>
+        <div class="more-accordion-body cloud-accordion-body">
+          ${cloudAccountHTML()}
+        </div>
+      </details>
+
+      <details class="card more-accordion">
+        <summary class="more-accordion-summary pressable">
+          <span class="setting-left"><span class="accordion-icon">${ICONS.backup}</span><span><b>Backup</b><small>Tages-Backup, Export und Wiederherstellung</small></span></span>
+          <span class="accordion-chevron">⌄</span>
+        </summary>
+        <div class="more-accordion-body">
+          <div class="backup-card backup-card-embedded">
+            <div class="backup-row"><div class="backup-icon">${ICONS.backup}</div><div class="grow"><strong>Automatisches Tages-Backup</strong><small id="backupStatus">Wird geprüft …</small></div></div>
+            <button class="primary-btn pressable backup-stella-btn" data-action="sendBackupStella">Backup an Stella schicken</button>
+            <div class="backup-actions"><button class="secondary-btn pressable" data-action="downloadBackup">Backup herunterladen</button><button class="secondary-btn pressable" data-action="restoreBackupFile">Backup importieren</button></div>
+            <button class="ghost-btn pressable backup-restore-latest" data-action="restoreLatestBackup">Letztes lokales Backup wiederherstellen</button>
+            <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
+            <p class="small-note backup-note">Google-Sync hält eure Geräte automatisch auf demselben Stand. Zusätzlich legt die App täglich ein lokales Backup an und behält die letzten 14.</p>
+          </div>
+        </div>
+      </details>
     </div>
   `);
+
   $$('[data-theme]').forEach(btn => btn.addEventListener('click', () => { state.settings.theme = btn.dataset.theme; saveState(); setTheme(btn.dataset.theme); toast('Theme geändert'); more(); }));
   $('[data-action="exportAll"]').addEventListener('click', downloadICSAll);
-  $('[data-action="reset"]').addEventListener('click', () => { if(confirm('Beispieldaten wirklich zurücksetzen?')){ state = normalizeStateShape(structuredClone(defaults)); saveState(); setTheme(state.settings.theme); scheduleReminderChecks(); home(); } });
+  $('[data-action="reset"]')?.addEventListener('click', () => { if(confirm('Beispieldaten wirklich zurücksetzen?')){ state = normalizeStateShape(structuredClone(defaults)); saveState(); setTheme(state.settings.theme); scheduleReminderChecks(); home(); } });
 
   $('#cloudLoginForm')?.addEventListener('submit', async e => {
     e.preventDefault();
@@ -1273,6 +1316,131 @@ function openEditCustomerModal(id){ modal = {type:'editCustomer', id}; renderCur
 function openPriceModal(tab='prices'){ modal = {type:'price', tab}; renderCurrent(); }
 function openEditOrder(o){ modal = {type:'editOrder', id:o.id}; renderCurrent(); }
 function openReminderModal(o){ modal = {type:'reminder', id:o.id}; renderCurrent(); }
+
+function pullSyncIndicator(){ return $('#pullSyncIndicator'); }
+function setPullSyncVisual(distance=0, mode='pull'){
+  const indicator = pullSyncIndicator();
+  if(!indicator) return;
+  const clamped = Math.max(0, Math.min(110, Number(distance || 0)));
+  const visible = Math.min(1, clamped / 38);
+  const y = -46 + Math.min(54, clamped * .62);
+  indicator.style.opacity = String(visible);
+  indicator.style.transform = `translate(-50%, ${y}px)`;
+  const icon = $('.pull-sync-icon', indicator);
+  const label = $('.pull-sync-text', indicator);
+  indicator.classList.toggle('ready', mode === 'ready');
+  indicator.classList.toggle('refreshing', mode === 'refreshing');
+  indicator.classList.toggle('done', mode === 'done');
+  if(icon && mode !== 'refreshing') icon.style.transform = `rotate(${Math.min(180, clamped * 2.4)}deg)`;
+  if(label){
+    if(mode === 'ready') label.textContent = 'Loslassen zum Synchronisieren';
+    else if(mode === 'refreshing') label.textContent = 'Synchronisiere…';
+    else if(mode === 'done') label.textContent = 'Aktuell ✓';
+    else label.textContent = 'Zum Synchronisieren ziehen';
+  }
+}
+function hidePullSyncIndicator(delay=0){
+  window.setTimeout(() => {
+    const indicator = pullSyncIndicator();
+    if(!indicator) return;
+    indicator.classList.remove('ready','refreshing','done');
+    indicator.style.opacity = '0';
+    indicator.style.transform = 'translate(-50%, -46px)';
+    const icon = $('.pull-sync-icon', indicator);
+    if(icon) icon.style.transform = 'rotate(0deg)';
+  }, delay);
+}
+async function waitForCloudPush(maxMs=9000){
+  const started = Date.now();
+  while(cloudPushInFlight && Date.now() - started < maxMs){
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+async function performPullSync(){
+  if(pullSyncRefreshing) return;
+  pullSyncRefreshing = true;
+  setPullSyncVisual(PULL_SYNC_THRESHOLD, 'refreshing');
+  try{
+    if(!cloudConfigured){
+      toast('Synchronisierung ist noch nicht eingerichtet');
+      return;
+    }
+    if(!currentUser || !cloudToken){
+      toast('Bitte erst beim Sync-Konto anmelden');
+      return;
+    }
+    if(navigator.onLine === false){
+      cloudSyncState = 'offline';
+      updateCloudStatusOnly();
+      toast('Offline – Synchronisierung später');
+      return;
+    }
+
+    // Erst eigene noch nicht hochgeladene Änderungen sichern, danach sofort
+    // nach Änderungen von den anderen Geräten schauen.
+    if(cloudPushInFlight) await waitForCloudPush();
+    if(cloudDirty) await pushCloudState();
+    if(cloudPushInFlight) await waitForCloudPush();
+    await checkCloudUpdates(true);
+
+    setPullSyncVisual(PULL_SYNC_THRESHOLD, 'done');
+    toast('Daten sind aktuell');
+    hidePullSyncIndicator(650);
+  }catch(err){
+    console.error('Pull-Sync fehlgeschlagen', err);
+    cloudSyncState = navigator.onLine === false ? 'offline' : 'error';
+    updateCloudStatusOnly();
+    toast('Synchronisierung fehlgeschlagen');
+  }finally{
+    pullSyncRefreshing = false;
+    pullSyncActive = false;
+    pullSyncDistance = 0;
+    if(!pullSyncIndicator()?.classList.contains('done')) hidePullSyncIndicator(250);
+  }
+}
+function bindPullToSync(){
+  const screen = $('.screen');
+  if(!screen) return;
+
+  screen.addEventListener('touchstart', e => {
+    if(pullSyncRefreshing || modal || !e.touches || e.touches.length !== 1) return;
+    if(screen.scrollTop > 1) return;
+    if(e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    pullSyncActive = true;
+    pullSyncStartY = e.touches[0].clientY;
+    pullSyncDistance = 0;
+  }, {passive:true});
+
+  screen.addEventListener('touchmove', e => {
+    if(!pullSyncActive || pullSyncRefreshing || !e.touches || e.touches.length !== 1) return;
+    if(screen.scrollTop > 1){
+      pullSyncActive = false;
+      hidePullSyncIndicator();
+      return;
+    }
+    const raw = e.touches[0].clientY - pullSyncStartY;
+    if(raw <= 0){
+      pullSyncDistance = 0;
+      setPullSyncVisual(0, 'pull');
+      return;
+    }
+    // Dämpfung wie bei nativen Apps: Finger bewegt sich weiter als die Anzeige.
+    pullSyncDistance = Math.min(110, raw * .55);
+    if(raw > 6) e.preventDefault();
+    setPullSyncVisual(pullSyncDistance, pullSyncDistance >= PULL_SYNC_THRESHOLD ? 'ready' : 'pull');
+  }, {passive:false});
+
+  const finish = () => {
+    if(!pullSyncActive || pullSyncRefreshing) return;
+    const shouldSync = pullSyncDistance >= PULL_SYNC_THRESHOLD;
+    pullSyncActive = false;
+    if(shouldSync) performPullSync();
+    else hidePullSyncIndicator();
+    pullSyncDistance = 0;
+  };
+  screen.addEventListener('touchend', finish, {passive:true});
+  screen.addEventListener('touchcancel', finish, {passive:true});
+}
 
 function bindOrderCards(){ $$('[data-order]').forEach(card => card.addEventListener('click', () => { route = {page:'detail', id:card.dataset.order}; detail(card.dataset.order); })); }
 function bindPressables(){ $$('.pressable').forEach(el => { el.addEventListener('touchstart', () => el.classList.add('pressed'), {passive:true}); ['touchend','touchcancel','mouseup','mouseleave'].forEach(evt => el.addEventListener(evt, () => el.classList.remove('pressed'))); }); }

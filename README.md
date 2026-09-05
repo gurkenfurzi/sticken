@@ -1,3 +1,17 @@
+# Auftragshelfer v21 – Mehr neu geordnet
+
+# Auftragshelfer v20 – schönere Theme-Farben
+
+# Auftragshelfer v18 – dein originales App-Icon
+
+Das App-Icon in dieser Version wird **direkt aus der von dir hochgeladenen `stickappicon.ai`** erzeugt. Es wurde kein neues KI-Icon verwendet.
+
+- Browser/Favicon: dein Original mit Transparenz
+- iPhone/iPad Home-Bildschirm: dasselbe Original, nur technisch blickdicht hinterlegt, damit iOS transparente Ecken nicht schwarz darstellt
+- Android/PWA: dasselbe Original als Launcher-Icon
+
+Wenn auf einem Gerät noch ein altes Icon angezeigt wird: die PWA einmal vom Home-Bildschirm entfernen, Website neu laden und erneut „Zum Home-Bildschirm“/„App installieren“ wählen.
+
 # Auftragshelfer v16 – automatische Geräte-Synchronisierung
 
 In dieser Version muss **kein Synchronisieren-Knopf mehr gedrückt werden**. Sobald ein Gerät mit demselben App-Konto angemeldet ist, läuft der Geräte-Sync automatisch.
@@ -294,3 +308,19 @@ Die URL kann dabei normalerweise gleich bleiben.
 
 Für euren kleinen internen Einsatz ist das deutlich einfacher als Cloudflare und benötigt
 keine hinterlegte Zahlungsmethode.
+
+
+## App-Icon (v17)
+
+Das hochgeladene Kalender-/Garnrollen-Bild ist jetzt fest als App-Icon hinterlegt:
+
+- iPhone/iPad: `icons/icon-180-opaque.png` als Apple Touch Icon (kein schwarzer Transparenz-Hintergrund)
+- Android/PWA: `icons/icon-192.png`, `icons/icon-512.png` + maskable Varianten
+- Browser/Favicon: `icons/icon-32.png`
+
+Die transparente Originalgrafik liegt zusätzlich als `icons/app-icon-master.png` im Projekt.
+
+**Wichtig bei bereits installierten PWAs:** iOS und Android cachen Home-Screen-Icons sehr aggressiv. Wenn nach dem Upload noch das alte Icon angezeigt wird, die bereits installierte Auftragshelfer-App einmal vom Home-Bildschirm entfernen und anschließend neu über „Zum Home-Bildschirm“ / „App installieren“ hinzufügen. Die App-Daten liegen davon unabhängig lokal bzw. im Google-Sync.
+
+## Neu in v19 – Pull-to-Sync
+Wenn die App ganz oben steht, auf dem Bildschirm nach unten ziehen und loslassen. Die App sichert zuerst eventuell noch offene lokale Änderungen und prüft danach sofort, ob auf einem anderen Gerät neue Daten vorhanden sind. Der normale automatische Sync läuft weiterhin im Hintergrund.

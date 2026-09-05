@@ -1,5 +1,5 @@
-const CACHE = "auftragshelfer-v16-google";
-const ASSETS = ["./","./index.html","./styles.css?v=16","./app.js?v=16","./manifest.json","./google-sync-config.js?v=16"];
+const CACHE = "auftragshelfer-v21-more-layout";
+const ASSETS = ["./","./index.html","./styles.css?v=21","./app.js?v=21","./manifest.json?v=21","./google-sync-config.js?v=21","./icons/icon-32.png?v=21","./icons/icon-180-opaque.png?v=21","./icons/icon-192.png?v=21","./icons/icon-192-opaque.png?v=21","./icons/icon-512-opaque.png?v=21"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
   self.skipWaiting();
