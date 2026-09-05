@@ -1,3 +1,13 @@
+# Auftragshelfer v23 – dauerhaft angemeldet
+
+## Neu
+- Google-Sync Login hat kein automatisches Ablaufdatum mehr.
+- Bereits gespeicherte Login-Token werden nach dem neuen Apps-Script-Deployment ebenfalls ohne Zeitlimit akzeptiert.
+- Login endet nur bei **Abmelden**, Kontowiederherstellung/Passwortwechsel oder wenn die App-/Browserdaten auf dem Gerät gelöscht werden.
+
+## Wichtig
+Die neue `google-apps-script/Code.gs` in Google Apps Script übernehmen und die Web-App erneut bereitstellen, damit die permanente Sitzung serverseitig gilt.
+
 # Auftragshelfer v22 – neuer Kalender + Google-Sync Login
 
 Neu:
