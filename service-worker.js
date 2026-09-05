@@ -1,5 +1,5 @@
-const CACHE = "auftragshelfer-v23-permanent-login";
-const ASSETS = ["./","./index.html","./styles.css?v=23","./app.js?v=23","./manifest.json?v=23","./google-sync-config.js?v=23","./icons/icon-32.png?v=23","./icons/icon-180-opaque.png?v=23","./icons/icon-192.png?v=23","./icons/icon-192-opaque.png?v=23","./icons/icon-512-opaque.png?v=23"];
+const CACHE = "auftragshelfer-v24-better-theme";
+const ASSETS = ["./","./index.html","./styles.css?v=24","./app.js?v=24","./manifest.json?v=24","./google-sync-config.js?v=24","./icons/icon-32.png?v=24","./icons/icon-180-opaque.png?v=24","./icons/icon-192.png?v=24","./icons/icon-192-opaque.png?v=24","./icons/icon-512-opaque.png?v=24"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
   self.skipWaiting();

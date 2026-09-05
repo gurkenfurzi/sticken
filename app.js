@@ -102,10 +102,11 @@ function saveState(){
 function setTheme(name){
   const root = document.documentElement;
   const themes = {
-    beige:{accent:"#b98b63", accent2:"#ead8c4", strong:"#8f6647", bg:"#fbf6f0", surface:"#fffdfa", surface2:"#f4e8dc", surface3:"#ead8c4", line:"#e8dacc", muted:"#7c7065"},
-    sand:{accent:"#c59a68", accent2:"#efdfc6", strong:"#9e7548", bg:"#fcf8f1", surface:"#fffdfa", surface2:"#f7ecde", surface3:"#efdfc7", line:"#eadfce", muted:"#7a6d5f"},
-    rose:{accent:"#cb8f85", accent2:"#f1d8d3", strong:"#9f665f", bg:"#fdf6f5", surface:"#fffdfc", surface2:"#f8e7e3", surface3:"#efd6d1", line:"#ebddda", muted:"#7d6c69"},
-    sage:{accent:"#9aa58d", accent2:"#dfe6d8", strong:"#707b66", bg:"#f7f8f4", surface:"#fffefd", surface2:"#e9eee3", surface3:"#dbe3d2", line:"#dfe5d8", muted:"#6f766a"}
+    beige:{accent:"#b38c78", accent2:"#ebddd2", strong:"#8e6957", bg:"#fbf6f2", surface:"#fffdfb", surface2:"#f5ebe3", surface3:"#ead8cc", line:"#eadccf", muted:"#7c7069"},
+    sand:{accent:"#be9b76", accent2:"#efe1d0", strong:"#947255", bg:"#fcf8f3", surface:"#fffdfa", surface2:"#f7ede2", surface3:"#ece0d0", line:"#ece0d2", muted:"#7f7264"},
+    rose:{accent:"#c89a93", accent2:"#f1deda", strong:"#9a7069", bg:"#fdf7f6", surface:"#fffdfc", surface2:"#f8eae7", surface3:"#efdad6", line:"#eee2df", muted:"#80706c"},
+    sage:{accent:"#9cab98", accent2:"#e1e7dd", strong:"#73806c", bg:"#f7f8f4", surface:"#fffefd", surface2:"#ebefe6", surface3:"#dde4d6", line:"#e1e6dc", muted:"#6f756d"},
+    mocha:{accent:"#b0998e", accent2:"#e9ddd8", strong:"#876f65", bg:"#faf7f5", surface:"#fffdfc", surface2:"#f4ece8", surface3:"#e8d8d2", line:"#e9ddd8", muted:"#776c68"}
   };
   const t = themes[name] || themes.beige;
   root.style.setProperty("--accent", t.accent);
@@ -1354,7 +1355,7 @@ function more(){
         <div class="more-accordion-body">
           <div class="theme-choice-row">
             <span>Theme auswählen</span>
-            <div class="palette">${['beige','sand','rose','sage'].map(t => `<button class="swatch pressable ${state.settings.theme===t?'active':''}" data-theme="${t}" aria-label="${t}"></button>`).join('')}</div>
+            <div class="palette">${['beige','sand','rose','sage','mocha'].map(t => `<button class="swatch pressable ${state.settings.theme===t?'active':''}" data-theme="${t}" aria-label="${t}"></button>`).join('')}</div>
           </div>
           <div class="accordion-subrow">
             <span><b>Beispieldaten</b><small>Lokale Beispieldaten zurücksetzen</small></span>
